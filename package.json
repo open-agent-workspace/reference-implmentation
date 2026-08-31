@@ -1,0 +1,22 @@
+{
+  "name": "agentic-workspace-reference-cli",
+  "version": "0.1.0",
+  "description": "Local-first reference CLI for agentic engineering workspaces",
+  "type": "module",
+  "bin": {
+    "ws": "./bin/ws.js"
+  },
+  "scripts": {
+    "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage",
+    "check": "node --check bin/ws.js && node --test",
+    "ws": "node ./bin/ws.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "yaml": "^2.8.1"
+  },
+  "license": "MIT"
+}

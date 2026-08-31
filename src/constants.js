@@ -1,0 +1,23 @@
+export const RUN_STATUSES = Object.freeze([
+  'CREATED',
+  'PREPARING',
+  'RUNNING',
+  'CANDIDATE',
+  'INTEGRATING',
+  'COMPLETED',
+  'FAILED',
+  'CANCELLED',
+  'ORPHANED',
+  'INTEGRATION_FAILED',
+]);
+
+export const CANDIDATE_STATUSES = Object.freeze([
+  'PENDING',
+  'INTEGRATING',
+  'INTEGRATED',
+  'REJECTED',
+  'SUPERSEDED',
+  'INTEGRATION_FAILED',
+]);
+
+export const WORKSPACE_VERSION = 1;
