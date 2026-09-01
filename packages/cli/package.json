@@ -1,0 +1,21 @@
+{
+  "name": "@agentic-workspace/cli",
+  "version": "0.3.0",
+  "description": "Local-first CLI for bounded agentic engineering runs",
+  "type": "module",
+  "bin": {
+    "ws": "./bin/ws.js"
+  },
+  "main": "./dist/src/cli.js",
+  "types": "./dist/src/cli.d.ts",
+  "files": ["bin", "dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "test": "node --test dist/tests/*.test.js",
+    "test:coverage": "node --test --experimental-test-coverage dist/tests/*.test.js"
+  },
+  "dependencies": {
+    "@agentic-workspace/core": "workspace:*"
+  }
+}

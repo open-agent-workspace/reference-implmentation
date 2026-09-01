@@ -1,5 +1,6 @@
 export class WorkspaceError extends Error {
-  constructor(message, { exitCode = 1, cause } = {}) {
+  [key: string]: any;
+  constructor(message, { exitCode = 1, cause } : any = {}) {
     super(message, { cause });
     this.name = 'WorkspaceError';
     this.exitCode = exitCode;

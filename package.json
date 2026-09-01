@@ -1,22 +1,24 @@
 {
-  "name": "agentic-workspace-reference-cli",
-  "version": "0.1.0",
-  "description": "Local-first reference CLI for agentic engineering workspaces",
+  "name": "agentic-workspace-reference-implementation",
+  "version": "0.3.0",
+  "private": true,
   "type": "module",
-  "bin": {
-    "ws": "./bin/ws.js"
-  },
-  "scripts": {
-    "test": "node --test",
-    "test:coverage": "node --test --experimental-test-coverage",
-    "check": "node --check bin/ws.js && node --test",
-    "ws": "node ./bin/ws.js"
-  },
+  "description": "TypeScript reference implementation of an agentic engineering workspace",
+  "packageManager": "pnpm@11.11.0",
   "engines": {
     "node": ">=24"
   },
-  "dependencies": {
-    "yaml": "^2.8.1"
+  "scripts": {
+    "build": "pnpm --filter @agentic-workspace/core build && pnpm --filter @agentic-workspace/cli build",
+    "check": "pnpm build && pnpm -r test",
+    "clean": "pnpm -r clean",
+    "test": "pnpm build && pnpm -r test",
+    "test:coverage": "pnpm build && pnpm -r test:coverage",
+    "ws": "node packages/cli/bin/ws.js"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "7.0.2"
   },
   "license": "MIT"
 }

@@ -51,7 +51,7 @@ export async function createWorktree({
   baseCommit,
   branchName,
   allowDirtyCanonical = false,
-} = {}) {
+} : any = {}) {
   const root = await assertGitRepository(repoPath);
   const snapshot = await snapshotRepository(root);
   if (snapshot.dirty && !allowDirtyCanonical) {
@@ -90,7 +90,7 @@ export async function createWorktree({
 }
 
 /** Materialize a context-only repository at its captured commit without a branch. */
-export async function createContextWorktree({ repoPath, runId, worktreePath, worktreeRoot, baseCommit } = {}) {
+export async function createContextWorktree({ repoPath, runId, worktreePath, worktreeRoot, baseCommit } : any = {}) {
   const root = await assertGitRepository(repoPath);
   const id = safeRunId(runId);
   const base = safeRef(baseCommit ?? await headCommit(root), 'baseCommit');
@@ -117,7 +117,7 @@ export async function finalizeCandidate({
   baseCommit,
   branch,
   message,
-} = {}) {
+} : any = {}) {
   const worktree = await assertGitRepository(worktreePath);
   const worktreeBranch = await currentBranch(worktree);
   const resultBranch = safeRef(branch ?? worktreeBranch, 'branch');
@@ -161,7 +161,7 @@ export async function finalizeCandidate({
  * Remove a worktree only when the caller opts in explicitly. This provider
  * never removes candidate work as part of error handling or normal cleanup.
  */
-export async function removeWorktree({ repoPath, worktreePath, allowRemoval = false, preserve, force = false } = {}) {
+export async function removeWorktree({ repoPath, worktreePath, allowRemoval = false, preserve, force = false } : any = {}) {
   if (allowRemoval !== true && preserve !== false) {
     throw new WorkspaceError('Worktree removal requires allowRemoval: true');
   }
@@ -179,6 +179,7 @@ export async function removeWorktree({ repoPath, worktreePath, allowRemoval = fa
 }
 
 export class GitWorktreeExecutionProvider {
+  [key: string]: any;
   async createWorktree(options) {
     return createWorktree(options);
   }

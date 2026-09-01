@@ -39,7 +39,8 @@ function isGroupAlive(pgid) {
  * workspace SQLite DatabaseSync instance.
  */
 export class ProcessResourceProvider {
-  constructor({ db = null, store = null, runtimeDir = '.workspace/runtime', now = isoNow, canBind } = {}) {
+  [key: string]: any;
+  constructor({ db = null, store = null, runtimeDir = '.workspace/runtime', now = isoNow, canBind } : any = {}) {
     // Prefer the OperationalStore contract when supplied. The raw-db mode is
     // retained for embedders that do not use the reference store.
     this.store = store ?? (db?.allocateResource ? db : null);
@@ -93,7 +94,7 @@ export class ProcessResourceProvider {
     return this.db?.prepare(sql).get(...params);
   }
 
-  async allocatePort({ runId, name = 'PORT', preferredPort, host = '127.0.0.1' } = {}) {
+  async allocatePort({ runId, name = 'PORT', preferredPort, host = '127.0.0.1' } : any = {}) {
     if (!runId) throw new WorkspaceError('A run ID is required to allocate a port');
     const candidates = preferredPort
       ? [Number(preferredPort)]
@@ -165,7 +166,7 @@ export class ProcessResourceProvider {
     });
   }
 
-  async launchProcess({ runId, command, args = [], cwd, env = {}, label = 'agent' } = {}) {
+  async launchProcess({ runId, command, args = [], cwd, env = {}, label = 'agent' } : any = {}) {
     if (!runId) throw new WorkspaceError('A run ID is required to launch a process');
     if (!command || typeof command !== 'string') throw new WorkspaceError('Process command must be an executable name');
     const logDir = join(this.runtimeDir, 'logs', String(runId));
@@ -188,7 +189,7 @@ export class ProcessResourceProvider {
       closeSync(stdoutFd);
       closeSync(stderrFd);
     }
-    const record = {
+    const record: any = {
       runId,
       pid: child.pid,
       pgid: process.platform === 'win32' ? child.pid : child.pid,
@@ -258,7 +259,7 @@ export class ProcessResourceProvider {
     return record.completion;
   }
 
-  async stopProcess(recordOrPid, { signal = 'SIGTERM', graceMs = 2_000 } = {}) {
+  async stopProcess(recordOrPid, { signal = 'SIGTERM', graceMs = 2_000 } : any = {}) {
     const record = typeof recordOrPid === 'object'
       ? recordOrPid
       : [...this.processes.values()].find((item) => item.pid === Number(recordOrPid));

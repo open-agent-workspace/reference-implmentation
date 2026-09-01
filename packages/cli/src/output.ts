@@ -1,4 +1,4 @@
-export function printValue(value, { json = false, stream = process.stdout } = {}) {
+export function printValue(value, { json = false, stream = process.stdout } : any = {}) {
   if (json) {
     stream.write(`${JSON.stringify(value, null, 2)}\n`);
     return;
@@ -14,13 +14,13 @@ export function printValue(value, { json = false, stream = process.stdout } = {}
   printRecord(value, { stream });
 }
 
-export function printTable(rows, { stream = process.stdout } = {}) {
+export function printTable(rows: any[], { stream = process.stdout } : any = {}) {
   if (!rows.length) {
     stream.write('No records.\n');
     return;
   }
-  const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))];
-  const rendered = rows.map((row) => columns.map((column) => formatCell(row[column])));
+  const columns: string[] = [...new Set<string>(rows.flatMap((row) => Object.keys(row)))];
+  const rendered: string[][] = rows.map((row) => columns.map((column) => formatCell(row[column])));
   const widths = columns.map((column, index) => Math.max(column.length, ...rendered.map((row) => row[index].length)));
   stream.write(`${columns.map((column, index) => column.toUpperCase().padEnd(widths[index])).join('  ')}\n`);
   for (const row of rendered) {

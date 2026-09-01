@@ -12,7 +12,8 @@ function safeId(value, label) {
 
 /** Git-friendly durable summaries and reviewable knowledge proposals. */
 export class FileKnowledgeProvider {
-  constructor({ workspaceDir } = {}) {
+  [key: string]: any;
+  constructor({ workspaceDir } : any = {}) {
     if (!workspaceDir) throw new WorkspaceError('FileKnowledgeProvider requires workspaceDir');
     this.workspaceDir = workspaceDir;
   }
@@ -45,7 +46,7 @@ export class FileKnowledgeProvider {
     return { path, record };
   }
 
-  async propose({ id, runId, title, body, kind = 'discovery' } = {}) {
+  async propose({ id, runId, title, body, kind = 'discovery' } : any = {}) {
     const proposalId = safeId(id ?? `P-${Date.now()}`, 'proposal ID');
     const directory = join(this.workspaceDir, 'proposals');
     await mkdir(directory, { recursive: true });

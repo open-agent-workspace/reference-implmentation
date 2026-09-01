@@ -1,4 +1,4 @@
-import { WorkspaceError } from './errors.js';
+import { WorkspaceError } from '@agentic-workspace/core';
 
 const booleanOptions = new Set([
   'json',
@@ -12,7 +12,7 @@ const repeatedOptions = new Set(['context-repo', 'port']);
 
 export function parseArgs(tokens) {
   const positionals = [];
-  const options = {};
+  const options: any = {};
   let literal = false;
 
   for (let index = 0; index < tokens.length; index += 1) {

@@ -38,7 +38,7 @@ function fixtures() {
 }
 
 test('run snapshots all repos but creates one writable primary worktree', async () => {
-  const f = fixtures();
+  const f: any = fixtures();
   const orchestrator = new RunOrchestrator({ ...f, profileResolver: async () => ({ name: 'coder', concurrency: 'allow', ports: [{ name: 'PORT' }] }), runtimeDir: '/tmp/runtime' });
   const run = await orchestrator.execute({ profile: 'coder', prompt: 'fake task', noIntegrate: true });
   assert.equal(run.status, 'CANDIDATE');
@@ -79,4 +79,52 @@ test('automatic integration failure marks both Run and Candidate', async () => {
   assert.equal(f.records[0].status, 'INTEGRATION_FAILED');
   assert.equal(f.candidates[0].status, 'INTEGRATION_FAILED');
   assert.match(f.candidates[0].metadata.integrationError, /validation gate failed/);
+});
+
+test('context-only repository mutation fails the Run and preserves the worktree', async () => {
+  const f: any = fixtures();
+  f.git.createContextWorktree = async () => ({ worktreePath: '/tmp/context-secondary' });
+  f.git.isDirty = async (path) => path === '/tmp/context-secondary';
+  const orchestrator = new RunOrchestrator({
+    ...f,
+    profileResolver: async () => ({ name: 'coder', concurrency: 'allow' }),
+  });
+  await assert.rejects(
+    () => orchestrator.execute({ profile: 'coder', prompt: 'unsafe context edit', noIntegrate: true }),
+    /modified context-only repository secondary/,
+  );
+  assert.equal(f.records[0].status, 'FAILED');
+  assert.equal(f.candidates.length, 0);
+  assert.equal(f.records[0].worktree, '/tmp/fake-worktree');
+});
+
+test('cancel stops the agent, transitions the Run, and releases resources', async () => {
+  const run = { id: 'R-cancel', status: 'RUNNING' };
+  const calls = [];
+  const orchestrator = new RunOrchestrator({
+    store: {
+      getRun: () => run,
+      updateRun: (_id, patch) => Object.assign(run, patch),
+      recordEvent: (event) => calls.push(event.type),
+    },
+    agent: { stop: async (runId) => calls.push(`stop:${runId}`) },
+    resources: { releaseRunResources: async (runId) => calls.push(`release:${runId}`) },
+  });
+  assert.equal((await orchestrator.cancel(run.id)).status, 'CANCELLED');
+  assert.deepEqual(calls, ['stop:R-cancel', 'run.cancelled', 'release:R-cancel']);
+});
+
+test('reconcile marks an active Run orphaned when its owned process disappears', async () => {
+  const run: any = { id: 'R-orphan', status: 'RUNNING' };
+  const orchestrator = new RunOrchestrator({
+    store: {
+      getRun: () => run,
+      updateRun: (_id, patch) => Object.assign(run, patch),
+      recordEvent() {},
+    },
+    resources: { reconcile: async () => [run.id] },
+  });
+  assert.deepEqual(await orchestrator.reconcile(), [run.id]);
+  assert.equal(run.status, 'ORPHANED');
+  assert.equal(run.error, 'Owned process disappeared');
 });

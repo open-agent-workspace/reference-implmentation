@@ -11,7 +11,8 @@ import { WorkspaceError } from './errors.js';
  * caller can record useful provenance without having to parse an error string.
  */
 export class GitError extends WorkspaceError {
-  constructor(message, { args = [], cwd, stdout = '', stderr = '', code, signal, cause } = {}) {
+  [key: string]: any;
+  constructor(message, { args = [], cwd, stdout = '', stderr = '', code, signal, cause } : any = {}) {
     super(message, { cause });
     this.name = 'GitError';
     this.args = [...args];
@@ -37,11 +38,11 @@ function displayArg(arg) {
  * Invoke Git without a shell. No argument is interpreted as shell syntax.
  * Resolves with stdout/stderr on success and throws GitError on failure.
  */
-export function runGit(args, { cwd, env, input, encoding = 'utf8' } = {}) {
+export function runGit(args, { cwd, env, input, encoding = 'utf8' } : any = {}) {
   assertArgs(args);
   if (cwd !== undefined && typeof cwd !== 'string') throw new TypeError('Git cwd must be a string');
 
-  return new Promise((resolve, reject) => {
+  return new Promise<any>((resolve, reject) => {
     const child = spawn('git', args, {
       cwd,
       env: env ? { ...process.env, ...env } : process.env,
@@ -91,6 +92,34 @@ export async function assertGitRepository(repoPath) {
 export async function repositoryRoot(repoPath) {
   return assertGitRepository(repoPath);
 }
+
+/**
+ * Read a repository's configured remote URL without invoking a shell.
+ *
+ * A repository may legitimately have no origin (for example a freshly
+ * initialized local checkout), so the missing-remote case is represented by
+ * `null` rather than an exception.  The remote name is configurable to make
+ * this useful for repositories whose canonical remote is not named origin.
+ */
+export async function remoteUrl(repoPath, remote = 'origin') {
+  const root = await assertGitRepository(repoPath);
+  if (typeof remote !== 'string' || remote.length === 0 || !/^[A-Za-z0-9._-]+$/.test(remote)) {
+    throw new TypeError('Git remote name must be a non-empty string');
+  }
+  try {
+    const { stdout } = await runGit(['config', '--local', '--get', `remote.${remote}.url`], { cwd: root });
+    const value = stdout.trim();
+    return value || null;
+  } catch (error) {
+    // `git config --get` uses exit code 1 when the key is absent.  Do not
+    // confuse that normal state with an inability to inspect the repository.
+    if (error instanceof GitError && error.code === 1) return null;
+    throw error;
+  }
+}
+
+export const getRemoteUrl = remoteUrl;
+export const originUrl = remoteUrl;
 
 export async function currentBranch(repoPath) {
   const root = await assertGitRepository(repoPath);
@@ -149,4 +178,3 @@ export async function snapshotRepositories(repositories) {
     typeof repository === 'string' ? repository : repository.path,
   )));
 }
-

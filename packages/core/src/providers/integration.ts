@@ -10,7 +10,8 @@ import { WorkspaceError } from '../errors.js';
 import { randomUUID } from 'node:crypto';
 
 export class IntegrationError extends WorkspaceError {
-  constructor(message, { phase, preserved = true, candidate, cause } = {}) {
+  [key: string]: any;
+  constructor(message, { phase, preserved = true, candidate, cause } : any = {}) {
     super(message, { cause });
     this.name = 'IntegrationError';
     this.phase = phase;
@@ -19,7 +20,7 @@ export class IntegrationError extends WorkspaceError {
   }
 }
 
-function required(value, name) {
+function required(value, name, fallback = undefined) {
   if (typeof value !== 'string' || value.length === 0) throw new WorkspaceError(`${name} is required`);
   if (value.startsWith('-') || value.includes('\0')) throw new WorkspaceError(`Invalid ${name}`);
   return value;
@@ -61,7 +62,7 @@ export async function withIntegrationLock(store, key, fn) {
   throw new WorkspaceError('Operational store does not provide withLock or acquireLock/releaseLock');
 }
 
-function candidateValue(candidate, key, fallback) {
+function candidateValue(candidate, key, fallback = undefined) {
   return candidate?.[key] ?? fallback;
 }
 
@@ -87,7 +88,7 @@ export async function integrateCandidate({
   targetBranch,
   store,
   validate,
-} = {}) {
+} : any = {}) {
   const candidateRecord = candidate ?? {};
   const canonical = await assertGitRepository(repoPath ?? candidateValue(candidateRecord, 'repoPath'));
   const candidateWorktree = await assertGitRepository(
@@ -190,15 +191,16 @@ export async function integrateCandidate({
 export const integrate = integrateCandidate;
 
 export class GitIntegrationProvider {
-  constructor({ store, validate } = {}) {
+  [key: string]: any;
+  constructor({ store, validate } : any = {}) {
     this.store = store;
     this.validate = validate;
   }
 
-  async integrate(candidateOrOptions = {}, runOrOptions = {}) {
+  async integrate(candidateOrOptions: any = {}, runOrOptions: any = {}) {
     // RunOrchestrator passes `(candidate, run)` while direct users generally
     // pass one `{ candidate, ...options }` object. Accept both shapes.
-    const options = Object.hasOwn(candidateOrOptions, 'candidate')
+    const options: any = Object.hasOwn(candidateOrOptions, 'candidate')
       ? { ...candidateOrOptions, ...(runOrOptions ?? {}) }
       : { candidate: candidateOrOptions, ...(runOrOptions ?? {}) };
     return integrateCandidate({

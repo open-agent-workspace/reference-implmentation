@@ -2,33 +2,45 @@ import { access, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 import { parseArgs, rejectUnknown, requirePositional } from './args.js';
-import { WorkspaceError } from './errors.js';
-import { headCommit, isDirty } from './git.js';
 import { printValue } from './output.js';
-import { RunOrchestrator } from './run.js';
-import { openStore } from './store.js';
 import {
+  WorkspaceError,
+  headCommit,
+  isDirty,
+  RunOrchestrator,
+  openStore,
   addRepository,
+  cloneRepository,
   createAgentProfile,
   discoverWorkspace,
+  generateWorkspaceAgentFiles,
   initWorkspace,
   listRepositories,
   loadAgentProfile,
+  materializeMissingRepositories,
+  materializeRepository,
+  repositoryRoot,
   workspacePaths,
-} from './workspace.js';
-import { CommandAgentProvider, tokenizeCommand } from './providers/agent-command.js';
-import { GitWorktreeExecutionProvider, removeWorktree } from './providers/git-worktree.js';
-import { GitIntegrationProvider } from './providers/integration.js';
-import { ProcessResourceProvider } from './providers/process.js';
-import { FileKnowledgeProvider } from './providers/knowledge-files.js';
+  CommandAgentProvider,
+  tokenizeCommand,
+  GitWorktreeExecutionProvider,
+  removeWorktree,
+  GitIntegrationProvider,
+  ProcessResourceProvider,
+  FileKnowledgeProvider,
+  runGit,
+} from '@agentic-workspace/core';
 
-const VERSION = '0.1.0';
+const VERSION = '0.3.0';
 const HELP = `Agentic Engineering Workspace reference CLI
 
 Usage:
   ws init [directory] [--name <name>]
-  ws repo add <path> [--name <name>] [--role <role>]
+  ws repo add <path> [--name <name>] [--role <role>] [--url <git-url>]
+  ws repo clone <git-url> [--name <name>] [--role <role>] [--path <repos/name>]
+  ws repo sync [name]
   ws repo list [--json]
+  ws generate [--json]
   ws agent add <name> [--command <argv>] [--concurrency allow|forbid]
   ws run <agent> [objective] [--repo <name>] [--context-repo <name> ...]
          [--intent <json>] [--port <ENV_NAME> ...] [--integrate|--no-integrate]
@@ -134,20 +146,84 @@ function closeRuntime(value) {
 async function commandInit(positionals, options, context) {
   rejectUnknown(options, ['name', 'json']);
   const workspace = initWorkspace(positionals[1] ?? context.cwd, { name: options.name });
+  if (!(await pathExists(join(workspace.root, '.git')))) {
+    await runGit(['init', '--quiet', workspace.root], { cwd: workspace.root });
+  }
+  const generated = generateWorkspaceAgentFiles(workspace);
   const state = runtime(workspace);
   closeRuntime(state);
-  output({ workspace: workspace.root, id: workspace.config.id, config: workspace.configPath }, options, context);
+  output({ workspace: workspace.root, id: workspace.config.id, config: workspace.configPath, generated }, options, context);
+}
+
+async function pathExists(path) {
+  try { await access(path); return true; } catch { return false; }
+}
+
+function commandGenerate(positionals, options, context) {
+  rejectUnknown(options, ['json']);
+  if (positionals.length > 1) throw new WorkspaceError('ws generate does not accept positional arguments');
+  const workspace = discoverWorkspace(context.cwd);
+  const generated = generateWorkspaceAgentFiles(workspace);
+  output(generated, options, context);
+}
+
+async function commandRepoClone(workspace, positionals, options, context) {
+  rejectUnknown(options, ['name', 'role', 'path', 'json']);
+  const url = requirePositional(positionals, 2, 'Git repository URL');
+  const repository = await cloneRepository(workspace, url, {
+    ...(options.name !== undefined ? { name: options.name } : {}),
+    ...(options.role !== undefined ? { role: options.role } : {}),
+    ...(options.path !== undefined ? { path: options.path } : {}),
+  });
+  output(repository, options, context);
+}
+
+async function commandRepoSync(workspace, positionals, options, context) {
+  rejectUnknown(options, ['json']);
+  if (positionals.length > 3) throw new WorkspaceError('Only one repository name may be supplied to repo sync');
+  const requested = positionals[2];
+  const repositories = workspace.config.repositories ?? [];
+  let rows;
+  if (requested === undefined) {
+    rows = await materializeMissingRepositories(workspace);
+  } else {
+    const repository = repositories.find((entry) => String(entry.name).toLowerCase() === String(requested).toLowerCase());
+    if (!repository) throw new WorkspaceError(`Repository not found: ${requested}`);
+    const configuredPath = repository.path === undefined || repository.path === null
+      ? undefined
+      : resolve(workspace.root, repository.path);
+    if (configuredPath && await pathExists(configuredPath)) {
+      await repositoryRoot(configuredPath);
+      rows = [{ ...repository, path: configuredPath, materialized: false }];
+    } else {
+      rows = [{ ...(await materializeRepository(workspace, repository)), materialized: true }];
+    }
+  }
+  generateWorkspaceAgentFiles(workspace);
+  output(rows, options, context);
 }
 
 async function commandRepo(positionals, options, context) {
-  const action = requirePositional(positionals, 1, 'repo action (add or list)');
+  const action = requirePositional(positionals, 1, 'repo action (add, clone, sync, or list)');
   const workspace = discoverWorkspace(context.cwd);
   if (action === 'add') {
-    rejectUnknown(options, ['name', 'role', 'json']);
+    rejectUnknown(options, ['name', 'role', 'url', 'json']);
     const path = requirePositional(positionals, 2, 'repository path');
-    const repository = await addRepository(workspace, resolve(context.cwd, path), { name: options.name, role: options.role });
+    const absolutePath = resolve(context.cwd, path);
+    const repository = await addRepository(workspace, absolutePath, {
+      name: options.name,
+      role: options.role,
+      ...(options.url !== undefined ? { url: options.url } : {}),
+    });
+    generateWorkspaceAgentFiles(workspace);
     output(repository, options, context);
     return;
+  }
+  if (action === 'clone') {
+    return commandRepoClone(workspace, positionals, options, context);
+  }
+  if (action === 'sync') {
+    return commandRepoSync(workspace, positionals, options, context);
   }
   if (action === 'list') {
     rejectUnknown(options, ['json']);
@@ -155,7 +231,7 @@ async function commandRepo(positionals, options, context) {
     for (const repo of workspace.repositories) {
       let revision;
       try { revision = (await headCommit(repo.path)).slice(0, 12); } catch { revision = 'unborn'; }
-      rows.push({ name: repo.name, role: repo.role, revision, path: repo.path });
+      rows.push({ name: repo.name, role: repo.role, revision, path: repo.path, ...(repo.url ? { url: repo.url } : {}) });
     }
     output(rows, options, context);
     return;
@@ -391,7 +467,7 @@ async function commandCleanup(options, context) {
   } finally { closeRuntime(state); }
 }
 
-export async function main(argv = [], suppliedContext = {}) {
+export async function main(argv = [], suppliedContext: any = {}) {
   const context = {
     cwd: suppliedContext.cwd ?? process.cwd(),
     stdout: suppliedContext.stdout ?? process.stdout,
@@ -410,6 +486,7 @@ export async function main(argv = [], suppliedContext = {}) {
   switch (command) {
     case 'init': return commandInit(positionals, options, context);
     case 'repo': return commandRepo(positionals, options, context);
+    case 'generate': return commandGenerate(positionals, options, context);
     case 'agent': return commandAgent(positionals, options, context);
     case 'run': return commandRun(positionals, options, context);
     case 'runs': return commandRuns(options, context);

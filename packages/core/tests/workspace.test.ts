@@ -10,6 +10,7 @@ import {
   initWorkspace,
   listRepositories,
   loadAgentProfile,
+  loadWorkspace,
 } from '../src/workspace.js';
 import { runGit } from '../src/git.js';
 
@@ -71,5 +72,16 @@ test('agent profile is a non-shell command argv with runtime policy fields', () 
       mutation_scope: { repositories: 'primary' }, resource_policy: {}, integration_policy: {},
       concurrency: 'forbid', validation: ['npm test'], ports: ['PORT'],
     });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('workspace loading rejects malformed and unsupported manifests', () => {
+  const root = mkdtempSync(join(tmpdir(), 'ws-invalid-'));
+  try {
+    const workspace = initWorkspace(root);
+    writeFileSync(workspace.configPath, 'version: [not valid\n', 'utf8');
+    assert.throws(() => loadWorkspace(root), /Invalid workspace config/);
+    writeFileSync(workspace.configPath, 'version: 99\nrepositories: []\n', 'utf8');
+    assert.throws(() => loadWorkspace(root), /Unsupported workspace version/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

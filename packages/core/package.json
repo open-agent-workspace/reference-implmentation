@@ -1,0 +1,23 @@
+{
+  "name": "@agentic-workspace/core",
+  "version": "0.3.0",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "test": "node --test dist/tests/*.test.js",
+    "test:coverage": "node --test --experimental-test-coverage dist/tests/*.test.js"
+  },
+  "dependencies": {
+    "yaml": "^2.8.1"
+  }
+}

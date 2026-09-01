@@ -56,8 +56,9 @@ await writeFile('agent-output.txt', (process.env.WS_PROMPT ?? 'missing prompt') 
   await runWs(repo, ['repo', 'add', '.']);
   await runWs(repo, ['agent', 'add', 'coder', '--command', 'node fake-agent.mjs']);
   // Integration intentionally requires a clean canonical checkout. Commit the
-  // durable workspace manifest; runtime SQLite/logs remain ignored.
-  await git(repo, ['add', '.workspace']);
+  // durable workspace manifest and generated coding-agent guidance; runtime
+  // SQLite/logs remain ignored.
+  await git(repo, ['add', '.workspace', '.gitignore', 'AGENTS.md', '.agents']);
   await git(repo, ['commit', '-qm', 'configure workspace']);
   const before = (await git(repo, ['rev-parse', 'HEAD'])).stdout.trim();
 

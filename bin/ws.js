@@ -1,11 +1,5 @@
 #!/usr/bin/env -S node --disable-warning=ExperimentalWarning
 
-import { main } from '../src/cli.js';
-
-main(process.argv.slice(2)).catch((error) => {
-  process.stderr.write(`Error: ${error.message}\n`);
-  if (process.env.WS_DEBUG) {
-    process.stderr.write(`${error.stack}\n`);
-  }
-  process.exitCode = error.exitCode ?? 1;
-});
+// Compatibility entrypoint for existing checkouts and documentation links.
+// The published CLI package owns the implementation in the pnpm monorepo.
+import '../packages/cli/bin/ws.js';

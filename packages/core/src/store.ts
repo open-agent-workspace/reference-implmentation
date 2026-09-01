@@ -25,7 +25,7 @@ function rowWithJson(row, fields) {
   return result;
 }
 
-function dbPathFrom(input = process.cwd()) {
+function dbPathFrom(input: any = process.cwd()) {
   if (typeof input === 'string' && (input.endsWith('.db') || input.includes('/runtime/'))) {
     return isAbsolute(input) ? input : resolve(input);
   }
@@ -132,7 +132,8 @@ const MIGRATIONS = [
 ];
 
 export class OperationalStore {
-  constructor(pathOrWorkspace = process.cwd(), options = {}) {
+  [key: string]: any;
+  constructor(pathOrWorkspace = process.cwd(), options: any = {}) {
     this.path = dbPathFrom(pathOrWorkspace);
     mkdirSync(dirname(this.path), { recursive: true });
     this.db = new DatabaseSync(this.path);
@@ -175,7 +176,7 @@ export class OperationalStore {
     }
   }
 
-  createRun(input = {}) {
+  createRun(input: any = {}) {
     const id = input.id ?? `R-${randomUUID()}`;
     const createdAt = input.created_at ?? input.createdAt ?? NOW();
     const profile = input.profile ?? input.agent_profile ?? input.agentProfile;
@@ -198,7 +199,7 @@ export class OperationalStore {
     return row;
   }
 
-  listRuns(options = {}) {
+  listRuns(options: any = {}) {
     const clauses = [];
     const args = [];
     if (options.status) { clauses.push('status = ?'); args.push(options.status); }
@@ -212,7 +213,7 @@ export class OperationalStore {
       });
   }
 
-  updateRun(id, patch = {}) {
+  updateRun(id, patch: any = {}) {
     const allowed = {
       status: patch.status,
       purpose: patch.purpose,
@@ -241,9 +242,9 @@ export class OperationalStore {
     return this.getRun(id);
   }
 
-  updateRunStatus(id, status, fields = {}) { return this.updateRun(id, { ...fields, status }); }
+  updateRunStatus(id, status, fields: any = {}) { return this.updateRun(id, { ...fields, status }); }
 
-  addRunRepository(runId, input = {}) {
+  addRunRepository(runId, input: any = {}) {
     const repoName = input.repo_name ?? input.repoName ?? input.name;
     invariant(repoName, 'Run repository name is required');
     this.db.prepare(`INSERT INTO run_repositories
@@ -263,7 +264,7 @@ export class OperationalStore {
       .map((row) => ({ ...row, mutation: Boolean(row.mutation), context: Boolean(row.context) }));
   }
 
-  allocateResource(input = {}) {
+  allocateResource(input: any = {}) {
     const runId = input.run_id ?? input.runId;
     const type = input.type;
     const value = String(input.value ?? input.key ?? '');
@@ -285,7 +286,7 @@ export class OperationalStore {
     return rowWithJson(this.db.prepare('SELECT * FROM resources WHERE id = ?').get(id), ['metadata_json']);
   }
 
-  listResources(options = {}) {
+  listResources(options: any = {}) {
     const clauses = [];
     const args = [];
     if (options.run_id ?? options.runId) { clauses.push('run_id = ?'); args.push(options.run_id ?? options.runId); }
@@ -296,14 +297,14 @@ export class OperationalStore {
       .map((row) => rowWithJson(row, ['metadata_json']));
   }
 
-  releaseResource(id, options = {}) {
+  releaseResource(id, options: any = {}) {
     const released = this.db.prepare("UPDATE resources SET status = 'RELEASED', released_at = ? WHERE id = ? AND status <> 'RELEASED'")
       .run(NOW(), id);
     if (released.changes === 0 && !options.ignoreMissing) throw new WorkspaceError(`Resource not found or already released: ${id}`);
     return this.getResource(id);
   }
 
-  addProcess(input = {}) {
+  addProcess(input: any = {}) {
     const runId = input.run_id ?? input.runId;
     invariant(runId && input.pid !== undefined, 'Process run_id and pid are required');
     const result = this.db.prepare(`INSERT INTO processes
@@ -316,7 +317,7 @@ export class OperationalStore {
 
   getProcess(id) { return rowWithJson(this.db.prepare('SELECT * FROM processes WHERE id = ?').get(id), ['metadata_json']); }
 
-  listProcesses(options = {}) {
+  listProcesses(options: any = {}) {
     const runId = options.run_id ?? options.runId;
     const rows = runId
       ? this.db.prepare('SELECT * FROM processes WHERE run_id = ? ORDER BY id').all(runId)
@@ -324,7 +325,7 @@ export class OperationalStore {
     return rows.map((row) => rowWithJson(row, ['metadata_json']));
   }
 
-  updateProcess(id, patch = {}) {
+  updateProcess(id, patch: any = {}) {
     const fields = { status: patch.status, exited_at: patch.exited_at ?? patch.exitedAt, exit_code: patch.exit_code ?? patch.exitCode, metadata_json: optionalJson(patch.metadata) };
     const entries = Object.entries(fields).filter(([, value]) => value !== undefined);
     if (!entries.length) return this.getProcess(id);
@@ -334,7 +335,7 @@ export class OperationalStore {
     return this.getProcess(id);
   }
 
-  createCandidate(input = {}) {
+  createCandidate(input: any = {}) {
     const id = input.id ?? `C-${randomUUID()}`;
     const runId = input.run_id ?? input.runId;
     const repoName = input.repo_name ?? input.repoName ?? input.repo;
@@ -357,7 +358,7 @@ export class OperationalStore {
     return row;
   }
 
-  listCandidates(options = {}) {
+  listCandidates(options: any = {}) {
     const runId = options.run_id ?? options.runId;
     const rows = runId
       ? this.db.prepare('SELECT * FROM candidates WHERE run_id = ? ORDER BY created_at DESC').all(runId)
@@ -368,7 +369,7 @@ export class OperationalStore {
     });
   }
 
-  updateCandidate(id, patch = {}) {
+  updateCandidate(id, patch: any = {}) {
     const fields = {
       result_commit: patch.result_commit ?? patch.resultCommit,
       repo_path: patch.repo_path ?? patch.repoPath,
@@ -388,7 +389,7 @@ export class OperationalStore {
     return this.getCandidate(id);
   }
 
-  recordEvent(input = {}) {
+  recordEvent(input: any = {}) {
     invariant(input.type, 'Event type is required');
     const result = this.db.prepare(`INSERT INTO events(run_id, type, payload_json, occurred_at)
       VALUES (?, ?, ?, ?)`).run(input.run_id ?? input.runId ?? null, input.type,
@@ -398,7 +399,7 @@ export class OperationalStore {
 
   getEvent(id) { return rowWithJson(this.db.prepare('SELECT * FROM events WHERE id = ?').get(id), ['payload_json']); }
 
-  listEvents(options = {}) {
+  listEvents(options: any = {}) {
     const runId = options.run_id ?? options.runId;
     const rows = runId
       ? this.db.prepare('SELECT * FROM events WHERE run_id = ? ORDER BY id').all(runId)
@@ -406,7 +407,7 @@ export class OperationalStore {
     return rows.map((row) => rowWithJson(row, ['payload_json']));
   }
 
-  acquireIntegrationLock(owner = randomUUID()) {
+  acquireIntegrationLock(owner: string = randomUUID()) {
     invariant(owner, 'Integration lock owner is required');
     return this.transaction(() => {
       const lock = this.db.prepare('SELECT owner FROM integration_lock WHERE id = 1').get();
@@ -468,7 +469,7 @@ export class OperationalStore {
   close() { this.db.close(); }
 }
 
-export function openStore(pathOrWorkspace = process.cwd(), options = {}) {
+export function openStore(pathOrWorkspace = process.cwd(), options: any = {}) {
   return new OperationalStore(pathOrWorkspace, options);
 }
 

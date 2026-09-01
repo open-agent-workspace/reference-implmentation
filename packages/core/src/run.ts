@@ -7,7 +7,7 @@ import { RUN_STATUSES } from './constants.js';
 import { WorkspaceError, invariant } from './errors.js';
 import { currentBranch } from './git.js';
 
-const execFileAsync = promisify(execFile);
+const execFileAsync: any = promisify(execFile);
 const ACTIVE = new Set(['CREATED', 'PREPARING', 'RUNNING', 'INTEGRATING']);
 const TRANSITIONS = Object.freeze({
   CREATED: new Set(['PREPARING', 'CANCELLED', 'FAILED']),
@@ -37,7 +37,7 @@ async function invoke(target, names, ...args) {
 function asRepoList(workspace, store) {
   const repos = workspace?.repos ?? workspace?.repositories ?? workspace?.config?.repositories ?? store?.repositories ?? [];
   if (Array.isArray(repos)) return repos;
-  return Object.entries(repos).map(([name, value]) => ({ name, ...value }));
+  return Object.entries(repos).map(([name, value]) => ({ name, ...(value as any) }));
 }
 
 function repoName(repo) {
@@ -73,7 +73,8 @@ async function hashDirectory(directory) {
  * domain independent of a particular SQLite, Git, or agent implementation.
  */
 export class RunOrchestrator {
-  constructor({ workspace, store, git, gitProvider, agent, agentProvider, resources, resourceProvider, integration, integrationProvider, knowledge, knowledgeProvider, profileResolver, runtimeDir = null, now = () => new Date().toISOString() } = {}) {
+  [key: string]: any;
+  constructor({ workspace, store, git, gitProvider, agent, agentProvider, resources, resourceProvider, integration, integrationProvider, knowledge, knowledgeProvider, profileResolver, runtimeDir = null, now = () => new Date().toISOString() } : any = {}) {
     this.workspace = workspace;
     this.store = store;
     this.git = git ?? gitProvider;
@@ -97,13 +98,13 @@ export class RunOrchestrator {
     return run;
   }
 
-  async #event(run, type, payload = {}) {
+  async #event(run, type, payload: any = {}) {
     const event = { runId: run.id, type, payload, at: this.now() };
     await invoke(this.store, ['recordEvent', 'addEvent', 'appendEvent'], event);
     return event;
   }
 
-  async #transition(run, next, extra = {}) {
+  async #transition(run, next, extra: any = {}) {
     const current = run.status;
     invariant(RUN_STATUSES.includes(next), `Unknown Run status: ${next}`);
     if (current !== next && !TRANSITIONS[current]?.has(next)) {
@@ -238,7 +239,7 @@ export class RunOrchestrator {
     return { baseCommit, resultCommit, repo: repoName(repo), repoName: repoName(repo), worktreePath: worktree.path, branch: worktree.branch, changed: true };
   }
 
-  async execute({ profile: profileName, agent: agentName, prompt, objective, primaryRepo, repo, contextRepos, contextRepo, intent = {}, integrate = true, noIntegrate = false, env = {} } = {}) {
+  async execute({ profile: profileName, agent: agentName, prompt, objective, primaryRepo, repo, contextRepos, contextRepo, intent = {}, integrate = true, noIntegrate = false, env = {} } : any = {}) {
     const name = profileName ?? agentName;
     if (!name) throw new WorkspaceError('An agent profile is required');
     const profile = await this.#profile(name);

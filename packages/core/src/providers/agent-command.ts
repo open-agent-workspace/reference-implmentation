@@ -63,7 +63,8 @@ export function tokenizeCommand(command) {
  * ["node", "fake-agent.js", "--prompt", "{prompt}"].
  */
 export class CommandAgentProvider {
-  constructor({ processProvider, runtimeDir = '.workspace/runtime' } = {}) {
+  [key: string]: any;
+  constructor({ processProvider, runtimeDir = '.workspace/runtime' } : any = {}) {
     if (!processProvider) throw new WorkspaceError('CommandAgentProvider requires a process provider');
     this.processProvider = processProvider;
     this.runtimeDir = runtimeDir;
@@ -94,7 +95,7 @@ export class CommandAgentProvider {
     });
   }
 
-  prepare({ profile, run, prompt, worktreePath, contextPaths = [], workspacePath } = {}) {
+  prepare({ profile, run, prompt, worktreePath, contextPaths = [], workspacePath } : any = {}) {
     const values = {
       prompt: String(prompt ?? run?.objective ?? ''),
       instructions: String(profile?.instructions ?? ''),
@@ -110,7 +111,7 @@ export class CommandAgentProvider {
     return { command, args, argv, cwd: worktreePath, values };
   }
 
-  async run({ profile, run, prompt, worktreePath, contextPaths = [], workspacePath, env = {} } = {}) {
+  async run({ profile, run, prompt, worktreePath, contextPaths = [], workspacePath, env = {} } : any = {}) {
     const spec = this.prepare({ profile, run, prompt, worktreePath, contextPaths, workspacePath });
     const runId = run?.id ?? run?.runId;
     if (!runId) throw new WorkspaceError('Agent run requires a run ID');
