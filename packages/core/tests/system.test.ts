@@ -51,6 +51,20 @@ test('legacy workspaces derive repository resources only when registries are abs
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test('an initialized workspace keeps repo add discoverable through derived fallback', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'ws-system-fallback-'));
+  try {
+    initWorkspace(root);
+    const repo = await gitRepository(root, 'app');
+    await addRepository(root, repo, { name: 'app' });
+    const model = loadSystemModel(root);
+    assert.equal(model.derived, true);
+    assert.equal(model.resources.find((resource) => resource.id === 'app')?.kind, 'repo');
+    assert.equal(model.repositories.find((entry) => entry.manifest_name === 'app')?.resource, 'app');
+    assert.equal(validateSystemModel(root).valid, true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('validation catches unknown relationships, manifest names, and unsafe paths', () => {
   const root = mkdtempSync(join(tmpdir(), 'ws-system-invalid-'));
   try {
@@ -66,14 +80,14 @@ test('validation catches unknown relationships, manifest names, and unsafe paths
       '    systems: [missing]',
       '    layers: [execution]',
       '    path: ../outside',
-      '    repository: missing-repo',
+      '    repository: other-repo',
     ].join('\n'));
     writeFileSync(join(root, 'system', 'repos.yaml'), [
       'version: 1',
       'repositories:',
       '  - id: cli-repo',
       '    manifest_name: missing-repo',
-      '    resource: missing-resource',
+      '    resource: cli',
       '    systems: [platform]',
       '    layers: [execution]',
     ].join('\n'));
@@ -81,6 +95,7 @@ test('validation catches unknown relationships, manifest names, and unsafe paths
     assert.equal(report.valid, false);
     assert.ok(report.errors.some((error) => error.path.includes('resources[0].path')));
     assert.ok(report.errors.some((error) => error.path.includes('manifest_name')));
+    assert.ok(report.errors.some((error) => error.message.includes('Resource repository does not match manifest_name')));
     assert.ok(discoverResources(root, { layer: 'execution' }).length === 1);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

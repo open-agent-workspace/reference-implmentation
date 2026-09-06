@@ -98,9 +98,10 @@ function repositoryFallbacks(workspace, resources, repositories) {
 
 /**
  * Load the durable system topology. Existing workspaces without any system
- * registries get repository resources derived from workspace.yaml; once any
- * registry exists, the registries are treated as canonical and missing files
- * are empty rather than silently re-derived.
+ * registries get repository resources derived from workspace.yaml. When a
+ * registry exists, it remains canonical; workspace repositories not yet
+ * represented by a repository/resource mapping are appended as derived
+ * fallback entries so adding a repository remains discoverable.
  */
 export function loadSystemModel(workspaceOrRoot = process.cwd()) {
   const workspace = workspaceFor(workspaceOrRoot);
@@ -242,6 +243,11 @@ export function validateSystemModel(workspaceOrRoot = process.cwd()) {
     if (!repository || typeof repository !== 'object') continue;
     if (typeof repository.manifest_name === 'string' && !workspaceRepositoryNames.has(repository.manifest_name)) addError(errors, `repositories[${index}].manifest_name`, `Repository manifest name is not registered: ${repository.manifest_name}`);
     if (typeof repository.resource === 'string' && !resourceIds.has(repository.resource)) addError(errors, `repositories[${index}].resource`, `Unknown resource reference: ${repository.resource}`);
+    const resource = typeof repository.resource === 'string'
+      ? model.resources.find((entry) => entry?.id === repository.resource)
+      : undefined;
+    if (resource && resource.kind !== 'repo') addError(errors, `repositories[${index}].resource`, `Repository mapping must point to a repo resource: ${repository.resource}`);
+    if (resource && resource.repository !== undefined && resource.repository !== repository.manifest_name) addError(errors, `repositories[${index}].resource`, `Resource repository does not match manifest_name: ${repository.manifest_name}`);
     checkIdList(errors, repository.systems, `repositories[${index}].systems`, systemIds, 'systems');
     checkIdList(errors, repository.layers, `repositories[${index}].layers`, layerIds, 'layers');
   }

@@ -7,13 +7,15 @@ import { parse as parseYaml } from 'yaml';
 import { FileKnowledgeProvider } from '../src/providers/knowledge-files.js';
 
 test('durable run summaries survive as Git-friendly YAML files', async (t) => {
-  const workspaceDir = await mkdtemp(join(tmpdir(), 'ws-knowledge-'));
-  t.after(() => rm(workspaceDir, { recursive: true, force: true }));
+  const root = await mkdtemp(join(tmpdir(), 'ws-knowledge-'));
+  const workspaceDir = join(root, '.workspace');
+  t.after(() => rm(root, { recursive: true, force: true }));
   const provider = new FileKnowledgeProvider({ workspaceDir });
   const result = await provider.recordDurableRun(
     {
       id: 'R-42', profile: 'coder', objective: 'fix auth', primaryRepo: 'frontend', status: 'COMPLETED',
-      intent: { writeScope: ['src/auth/**'] }, snapshot: { repos: [{ name: 'frontend', commit: 'abc' }] },
+      intent: { writeScope: ['src/auth/**'], lineage: { task: 'TASK-42', workstream: 'agent-platform', system_revision: 'sys-3', plan_revision: 'plan-4', resources: ['repo:frontend'], agent: 'luna' } },
+      snapshot: { repos: [{ name: 'frontend', path: join(root, 'repos', 'frontend'), commit: 'abc' }, { name: 'external', path: '/opt/external/repo', commit: 'xyz' }] },
     },
     { id: 'C-42', repo: 'frontend', baseCommit: 'abc', resultCommit: 'def', status: 'INTEGRATED', validation: { passed: true } },
   );
@@ -22,7 +24,9 @@ test('durable run summaries survive as Git-friendly YAML files', async (t) => {
   assert.equal(record.version, 1);
   assert.equal(record.run, 'R-42');
   assert.equal(record.purpose, 'fix auth');
-  assert.deepEqual(record.intent, { writeScope: ['src/auth/**'] });
+  assert.equal(record.agent, 'luna');
+  assert.deepEqual(record.lineage, { task: 'TASK-42', workstream: 'agent-platform', system_revision: 'sys-3', plan_revision: 'plan-4', resources: ['repo:frontend'] });
+  assert.deepEqual(record.snapshot.repos.map((repo) => repo.path), ['repos/frontend', '/opt/external/repo']);
   assert.equal(record.candidate.result_commit, 'def');
 });
 

@@ -345,7 +345,7 @@ function commandRuns(options, context) {
 async function declaredRepositoryStatus(repositories) {
   return Promise.all(repositories.map(async (repo) => {
     const base = { name: repo.name, path: repo.path };
-    if (!repo.path) return { ...base, state: 'missing', dirty: null, branch: null, head: null };
+    if (!repo.path || !(await pathExists(repo.path))) return { ...base, state: 'missing', dirty: null, branch: null, head: null };
     try {
       const [branch, head, dirty] = await Promise.all([
         currentBranch(repo.path).catch(() => null),
