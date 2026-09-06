@@ -6,6 +6,7 @@ const booleanOptions = new Set([
   'version',
   'integrate',
   'no-integrate',
+  'reconcile',
 ]);
 
 const repeatedOptions = new Set(['context-repo', 'port']);

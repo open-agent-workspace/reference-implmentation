@@ -70,7 +70,9 @@ async function hasUnsafeCanonicalChanges(repoPath) {
   const rows = (await statusPorcelain(repoPath)).split('\n').filter(Boolean);
   return rows.some((line) => {
     const path = line.slice(3).replace(/^"|"$/g, '');
-    return !path.startsWith('.workspace/history/runs/') && !path.startsWith('.workspace/proposals/');
+    return !path.startsWith('.workspace/history/runs/')
+      && !path.startsWith('.workspace/proposals/')
+      && !path.startsWith('system/');
   });
 }
 

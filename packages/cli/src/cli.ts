@@ -6,6 +6,7 @@ import { printValue } from './output.js';
 import {
   WorkspaceError,
   headCommit,
+  currentBranch,
   isDirty,
   RunOrchestrator,
   openStore,
@@ -29,6 +30,9 @@ import {
   ProcessResourceProvider,
   FileKnowledgeProvider,
   runGit,
+  discoverResources,
+  loadSystemModel,
+  validateSystemModel,
 } from '@agentic-workspace/core';
 
 const VERSION = '0.3.0';
@@ -40,12 +44,14 @@ Usage:
   ws repo clone <git-url> [--name <name>] [--role <role>] [--path <repos/name>]
   ws repo sync [name]
   ws repo list [--json]
+  ws discover [--system <id>] [--layer <id>] [--kind <kind>] [--json]
+  ws validate [--json]
   ws generate [--json]
   ws agent add <name> [--command <argv>] [--concurrency allow|forbid]
   ws run <agent> [objective] [--repo <name>] [--context-repo <name> ...]
          [--intent <json>] [--port <ENV_NAME> ...] [--integrate|--no-integrate]
   ws runs [--limit <n>] [--json]
-  ws status [--json]
+  ws status [--reconcile] [--json]
   ws inspect <run-or-candidate-id> [--json]
   ws integrate <candidate-id> [--json]
   ws cleanup [--json]
@@ -239,6 +245,32 @@ async function commandRepo(positionals, options, context) {
   throw new WorkspaceError(`Unknown repo action: ${action}`);
 }
 
+function commandDiscover(positionals, options, context) {
+  rejectUnknown(options, ['system', 'layer', 'kind', 'json']);
+  if (positionals.length > 1) throw new WorkspaceError('ws discover does not accept positional arguments');
+  const workspace = discoverWorkspace(context.cwd);
+  const rows = discoverResources(workspace, {
+    ...(options.system !== undefined ? { system: options.system } : {}),
+    ...(options.layer !== undefined ? { layer: options.layer } : {}),
+    ...(options.kind !== undefined ? { kind: options.kind } : {}),
+  });
+  output(rows, options, context);
+}
+
+function commandValidate(positionals, options, context) {
+  rejectUnknown(options, ['json']);
+  if (positionals.length > 1) throw new WorkspaceError('ws validate does not accept positional arguments');
+  const workspace = discoverWorkspace(context.cwd);
+  const report = validateSystemModel(workspace);
+  output({
+    valid: report.valid,
+    derived: report.derived,
+    errors: report.errors,
+    warnings: report.warnings,
+  }, options, context);
+  if (!report.valid) throw new WorkspaceError(`System validation failed with ${report.errors.length} error${report.errors.length === 1 ? '' : 's'}`);
+}
+
 function commandAgent(positionals, options, context) {
   const action = requirePositional(positionals, 1, 'agent action (add)');
   if (action !== 'add') throw new WorkspaceError(`Unknown agent action: ${action}`);
@@ -310,18 +342,46 @@ function commandRuns(options, context) {
   } finally { closeRuntime(state); }
 }
 
+async function declaredRepositoryStatus(repositories) {
+  return Promise.all(repositories.map(async (repo) => {
+    const base = { name: repo.name, path: repo.path };
+    if (!repo.path) return { ...base, state: 'missing', dirty: null, branch: null, head: null };
+    try {
+      const [branch, head, dirty] = await Promise.all([
+        currentBranch(repo.path).catch(() => null),
+        headCommit(repo.path).catch(() => null),
+        isDirty(repo.path).catch(() => null),
+      ]);
+      if (!head && !branch) return { ...base, state: 'invalid', dirty: null, branch: null, head: null };
+      return { ...base, state: 'present', dirty, branch, head: head ? head.slice(0, 12) : null };
+    } catch {
+      return { ...base, state: 'invalid', dirty: null, branch: null, head: null };
+    }
+  }));
+}
+
 async function commandStatus(options, context) {
-  rejectUnknown(options, ['json']);
+  rejectUnknown(options, ['json', 'reconcile']);
   const workspace = discoverWorkspace(context.cwd);
   const state = runtime(workspace);
   try {
-    const stale = await state.runs.reconcile();
+    const stale = options.reconcile ? await state.runs.reconcile() : [];
     const allRuns = state.store.listRuns();
     const activeStatuses = new Set(['CREATED', 'PREPARING', 'RUNNING', 'INTEGRATING']);
     const candidates = state.store.listCandidates();
+    const topology = loadSystemModel(workspace);
+    const repositoryStatus = await declaredRepositoryStatus(workspace.repositories);
     const result = {
       workspace: workspace.config.name,
       root: workspace.root,
+      declared: {
+        systems: topology.systems,
+        layers: topology.layers,
+        resources: topology.resources,
+        repositories: topology.repositories,
+        derived: topology.derived,
+        repository_status: repositoryStatus,
+      },
       repositories: workspace.repositories.map((repo) => ({ name: repo.name, role: repo.role, path: repo.path })),
       active_runs: allRuns.filter((run) => activeStatuses.has(run.status)),
       pending_candidates: candidates.filter((candidate) => ['PENDING', 'INTEGRATION_FAILED'].includes(candidate.status)),
@@ -486,6 +546,8 @@ export async function main(argv = [], suppliedContext: any = {}) {
   switch (command) {
     case 'init': return commandInit(positionals, options, context);
     case 'repo': return commandRepo(positionals, options, context);
+    case 'discover': return commandDiscover(positionals, options, context);
+    case 'validate': return commandValidate(positionals, options, context);
     case 'generate': return commandGenerate(positionals, options, context);
     case 'agent': return commandAgent(positionals, options, context);
     case 'run': return commandRun(positionals, options, context);

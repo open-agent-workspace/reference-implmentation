@@ -15,6 +15,7 @@ import { WorkspaceError, invariant } from './errors.js';
 import { WORKSPACE_VERSION } from './constants.js';
 import { remoteUrl, repositoryRoot, runGit } from './git.js';
 import { writeWorkspaceAgentFiles } from './agent-guidance.js';
+import { initializeSystemRegistries } from './system.js';
 
 const WORKSPACE_DIR = '.workspace';
 const CONFIG_FILE = 'workspace.yaml';
@@ -95,6 +96,7 @@ export function initWorkspace(root = process.cwd(), options: any = {}) {
     const path = join(workspaceDir, 'context', file);
     if (!existsSync(path)) writeFileSync(path, `# ${parse(file).name}\n\n`, 'utf8');
   }
+  initializeSystemRegistries(workspaceRoot);
 
   // Runtime state is disposable and must never enter durable Git history. The
   // marker keeps the directory available after a fresh clone.

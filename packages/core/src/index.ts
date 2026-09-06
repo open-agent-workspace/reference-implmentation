@@ -4,6 +4,7 @@ export * from './git.js';
 export * from './run.js';
 export * from './store.js';
 export * from './workspace.js';
+export * from './system.js';
 export * from './providers/agent-command.js';
 export * from './providers/contracts.js';
 export * from './providers/git-worktree.js';

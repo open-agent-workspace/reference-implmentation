@@ -168,7 +168,9 @@ export class RunOrchestrator {
 
   #isPromotedKnowledgePath(statusLine) {
     const path = statusLine.slice(3).replace(/^"|"$/g, '');
-    return path.startsWith('.workspace/history/runs/') || path.startsWith('.workspace/proposals/');
+    return path.startsWith('.workspace/history/runs/')
+      || path.startsWith('.workspace/proposals/')
+      || path.startsWith('system/');
   }
 
   async #snapshot(repos) {

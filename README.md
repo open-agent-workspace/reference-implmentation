@@ -5,6 +5,11 @@ Engineering Workspace patterns. It coordinates bounded coding-agent runs
 across one or more Git repositories without turning those repositories into a
 monorepo or letting agents write into the human checkout.
 
+The durable `system/` registries provide the architecture-level discovery
+surface: systems explain responsibility, layers explain architectural role,
+and resources describe what exists. They are declaration-only in this
+version; runtime adapters and reconciliation remain separate concerns.
+
 The reference convention treats a workspace as a Git control repository. Open
 that control repository as the coding agent’s project root. The repositories
 it manages are independently Git-managed checkouts below the ignored
@@ -101,12 +106,14 @@ ports.
   ws repo clone <url> [--name <name>] [--role <role>] [--path <repos/name>]
   ws repo sync [name]
   ws repo list
+  ws discover [--system <id>] [--layer <id>] [--kind <kind>] [--json]
+  ws validate [--json]
   ws generate
   ws agent add <name> [--command <command>] [--concurrency allow|forbid]
 ws run <agent> [objective] [--repo <name>] [--context-repo <name> ...]
        [--intent <json>] [--port <ENV_NAME> ...] [--integrate|--no-integrate]
 ws runs [--limit <n>]
-ws status
+ws status [--reconcile]
 ws inspect <run-or-candidate-id>
 ws integrate <candidate-id>
 ws cleanup
@@ -137,11 +144,22 @@ AGENTS.md                         # generated driver-agent instructions
 │   ├── worktrees/
 │   └── logs/
 └── .gitignore
+system/
+├── systems.yaml                 # responsibility/product boundaries
+├── layers.yaml                  # architectural roles
+├── resources.yaml               # repos, services, skills, jobs, and other resources
+└── repos.yaml                   # repository manifest-to-resource mappings
 repos/                            # ignored; independent Git repositories
 ├── api-service/.git/
 ├── web-client/.git/
 └── ...
 ```
+
+`ws discover` queries declared resources by system, layer, or kind. `ws
+validate` checks registry structure, references, repository manifest names,
+and local path safety without opening SQLite or mutating runtime state. Older
+workspaces with no `system/` registries derive repository resources from
+`.workspace/workspace.yaml` until registries are added.
 
 The manifest, context, generated guidance, skills, profiles, history
 summaries, and proposals are durable and Git-friendly. The `repos/` directory
