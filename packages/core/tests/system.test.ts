@@ -74,10 +74,20 @@ test('an initialized workspace keeps repo add discoverable through derived fallb
       '    systems: [platform]',
       '    layers: [execution]',
     ].join('\n'));
-    writeFileSync(join(root, 'system', 'repos.yaml'), 'version: 1\nrepositories: []\n');
+    writeFileSync(join(root, 'system', 'repos.yaml'), [
+      'version: 1',
+      'repositories:',
+      '  - id: unrelated',
+      '    manifest_name: unrelated',
+      '    resource: app',
+      '    systems: [platform]',
+      '    layers: [execution]',
+    ].join('\n'));
     const withUnrelatedResource = loadSystemModel(root);
     assert.equal(withUnrelatedResource.resources.find((resource) => resource.repository === 'app')?.kind, 'repo');
     assert.equal(withUnrelatedResource.repositories.find((entry) => entry.manifest_name === 'app')?.resource, 'repo-app');
+
+    writeFileSync(join(root, 'system', 'repos.yaml'), 'version: 1\nrepositories: []\n');
     assert.equal(validateSystemModel(root).valid, true);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

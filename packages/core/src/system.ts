@@ -70,12 +70,11 @@ function derivedRegistries(workspace) {
 
 function repositoryFallbacks(workspace, resources, repositories) {
   const mappedNames = new Set(repositories.map((entry) => entry?.manifest_name).filter(Boolean));
-  const mappedResources = new Set(repositories.map((entry) => entry?.resource).filter(Boolean));
   const fallback = [];
   for (const repository of workspace.config.repositories ?? []) {
     const name = String(repository.name);
     const hasResource = resources.some((resource) => resource?.repository === name);
-    if (mappedNames.has(name) || hasResource || mappedResources.has(name)) continue;
+    if (mappedNames.has(name) || hasResource) continue;
     let resourceId = name;
     while (resources.some((resource) => resource?.id === resourceId)) resourceId = `repo-${resourceId}`;
     const resource = {
