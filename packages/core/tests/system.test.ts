@@ -62,6 +62,23 @@ test('an initialized workspace keeps repo add discoverable through derived fallb
     assert.equal(model.resources.find((resource) => resource.id === 'app')?.kind, 'repo');
     assert.equal(model.repositories.find((entry) => entry.manifest_name === 'app')?.resource, 'app');
     assert.equal(validateSystemModel(root).valid, true);
+
+    writeFileSync(join(root, 'system', 'systems.yaml'), 'version: 1\nsystems:\n  - id: platform\n    name: Platform\n');
+    writeFileSync(join(root, 'system', 'layers.yaml'), 'version: 1\nlayers:\n  - id: execution\n    name: Execution\n');
+    writeFileSync(join(root, 'system', 'resources.yaml'), [
+      'version: 1',
+      'resources:',
+      '  - id: app',
+      '    name: App service',
+      '    kind: service',
+      '    systems: [platform]',
+      '    layers: [execution]',
+    ].join('\n'));
+    writeFileSync(join(root, 'system', 'repos.yaml'), 'version: 1\nrepositories: []\n');
+    const withUnrelatedResource = loadSystemModel(root);
+    assert.equal(withUnrelatedResource.resources.find((resource) => resource.repository === 'app')?.kind, 'repo');
+    assert.equal(withUnrelatedResource.repositories.find((entry) => entry.manifest_name === 'app')?.resource, 'repo-app');
+    assert.equal(validateSystemModel(root).valid, true);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

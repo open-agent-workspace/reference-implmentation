@@ -24,6 +24,7 @@ test('durable run summaries survive as Git-friendly YAML files', async (t) => {
   assert.equal(record.version, 1);
   assert.equal(record.run, 'R-42');
   assert.equal(record.purpose, 'fix auth');
+  assert.equal(record.profile, 'coder');
   assert.equal(record.agent, 'luna');
   assert.deepEqual(record.lineage, { task: 'TASK-42', workstream: 'agent-platform', system_revision: 'sys-3', plan_revision: 'plan-4', resources: ['repo:frontend'] });
   assert.deepEqual(record.snapshot.repos.map((repo) => repo.path), ['repos/frontend', '/opt/external/repo']);

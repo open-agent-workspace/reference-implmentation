@@ -51,6 +51,7 @@ export class FileKnowledgeProvider {
     const record = {
       version: 1,
       run: runId,
+      profile: run.profile,
       agent: requestedLineage.agent ?? run.profile,
       purpose: run.purpose ?? run.objective ?? '',
       primary_repo: run.primary_repo ?? run.primaryRepo,

@@ -4,7 +4,7 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
 import { WorkspaceError, invariant } from './errors.js';
@@ -74,10 +74,12 @@ function repositoryFallbacks(workspace, resources, repositories) {
   const fallback = [];
   for (const repository of workspace.config.repositories ?? []) {
     const name = String(repository.name);
-    const hasResource = resources.some((resource) => resource?.repository === name || resource?.id === name);
+    const hasResource = resources.some((resource) => resource?.repository === name);
     if (mappedNames.has(name) || hasResource || mappedResources.has(name)) continue;
+    let resourceId = name;
+    while (resources.some((resource) => resource?.id === resourceId)) resourceId = `repo-${resourceId}`;
     const resource = {
-      id: name,
+      id: resourceId,
       name,
       kind: 'repo',
       systems: [],
@@ -90,8 +92,8 @@ function repositoryFallbacks(workspace, resources, repositories) {
       lifecycle: 'active',
     };
     resources.push(resource);
-    repositories.push({ id: name, manifest_name: name, resource: name, systems: [], layers: [], derived: true });
-    fallback.push(name);
+    repositories.push({ id: name, manifest_name: name, resource: resourceId, systems: [], layers: [], derived: true });
+    fallback.push(resourceId);
   }
   return fallback;
 }
@@ -207,7 +209,7 @@ function safeRelativePath(value, root) {
   if (typeof value !== 'string' || !value.trim() || isAbsolute(value)) return false;
   const resolved = resolve(root, value);
   const escaped = relative(root, resolved);
-  return escaped === '' || (escaped !== '..' && !escaped.startsWith(`..${'/'}`) && !isAbsolute(escaped));
+  return escaped === '' || (escaped !== '..' && !escaped.startsWith(`..${sep}`) && !isAbsolute(escaped));
 }
 
 /** Validate topology references and local path safety without opening runtime state. */
