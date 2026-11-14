@@ -4,7 +4,7 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
 import { WorkspaceError, invariant } from './errors.js';
@@ -17,6 +17,7 @@ export const SYSTEM_REGISTRY_FILES = Object.freeze({
   layers: 'layers.yaml',
   resources: 'resources.yaml',
   repositories: 'repos.yaml',
+  dependencies: 'dependencies.yaml',
 });
 
 function workspaceFor(input = process.cwd()) {
@@ -65,7 +66,7 @@ function derivedRegistries(workspace) {
     ...(repository.url !== undefined ? { url: repository.url } : {}),
     lifecycle: 'active',
   }));
-  return { systems: [], layers: [], resources, repositories };
+  return { systems: [], layers: [], resources, repositories, dependencies: [] };
 }
 
 function repositoryFallbacks(workspace, resources, repositories) {
@@ -110,12 +111,14 @@ export function loadSystemModel(workspaceOrRoot = process.cwd()) {
   const layers = readRegistry(workspace, 'layers', SYSTEM_REGISTRY_FILES.layers);
   const resources = readRegistry(workspace, 'resources', SYSTEM_REGISTRY_FILES.resources);
   const repositories = readRegistry(workspace, 'repositories', SYSTEM_REGISTRY_FILES.repositories);
-  const hasRegistry = systems.present || layers.present || resources.present || repositories.present;
+  const dependencies = readRegistry(workspace, 'dependencies', SYSTEM_REGISTRY_FILES.dependencies);
+  const hasRegistry = systems.present || layers.present || resources.present || repositories.present || dependencies.present;
   const derived = !hasRegistry ? derivedRegistries(workspace) : {
     systems: systems.values,
     layers: layers.values,
     resources: resources.values,
     repositories: repositories.values,
+    dependencies: dependencies.values,
   };
   const fallbackResourceIds = !hasRegistry
     ? new Set(derived.resources.map((resource) => resource.id))
@@ -132,17 +135,20 @@ export function loadSystemModel(workspaceOrRoot = process.cwd()) {
       layers: layers.path,
       resources: resources.path,
       repositories: repositories.path,
+      dependencies: dependencies.path,
     },
     registryVersions: {
       systems: systems.version,
       layers: layers.version,
       resources: resources.version,
       repositories: repositories.version,
+      dependencies: dependencies.version,
     },
     systems: derived.systems,
     layers: derived.layers,
     resources: derived.resources,
     repositories: derived.repositories,
+    dependencies: derived.dependencies,
   };
 }
 
@@ -211,6 +217,55 @@ function safeRelativePath(value, root) {
   return escaped === '' || (escaped !== '..' && !escaped.startsWith(`..${sep}`) && !isAbsolute(escaped));
 }
 
+function safeModulePath(value) {
+  if (typeof value !== 'string' || !value.trim() || isAbsolute(value)) return false;
+  const normalized = normalize(value);
+  return normalized === '.' || (normalized !== '..' && !normalized.startsWith(`..${sep}`));
+}
+
+function validateDependencyEndpoint(errors, endpoint, path, repositoryNames) {
+  if (!endpoint || typeof endpoint !== 'object' || Array.isArray(endpoint)) {
+    addError(errors, path, 'Dependency endpoints must be mappings');
+    return;
+  }
+  if (typeof endpoint.repository !== 'string' || !endpoint.repository.trim()) {
+    addError(errors, `${path}.repository`, 'Dependency endpoint requires a repository');
+  } else if (!repositoryNames.has(endpoint.repository)) {
+    addError(errors, `${path}.repository`, `Unknown repository manifest name: ${endpoint.repository}`);
+  }
+  if (endpoint.module !== undefined && !safeModulePath(endpoint.module)) {
+    addError(errors, `${path}.module`, 'Module paths must be relative and stay inside the repository');
+  }
+}
+
+function matchesDependencyEndpoint(endpoint, filters: any) {
+  if (!endpoint || typeof endpoint !== 'object') return false;
+  if (filters.repository !== undefined && endpoint.repository !== filters.repository) return false;
+  if (filters.module !== undefined && endpoint.module !== filters.module) return false;
+  return true;
+}
+
+/** Discover declared dependency edges between repositories or modules. */
+export function discoverDependencies(workspaceOrRoot = process.cwd(), filters: any = {}) {
+  const model = loadSystemModel(workspaceOrRoot);
+  const direction = filters.direction ?? 'both';
+  if (!['incoming', 'outgoing', 'both'].includes(direction)) {
+    throw new WorkspaceError('Dependency direction must be incoming, outgoing, or both');
+  }
+  const hasEndpointFilter = filters.repository !== undefined || filters.module !== undefined;
+  return model.dependencies.filter((dependency) => {
+    if (filters.kind !== undefined && dependency.kind !== filters.kind) return false;
+    if (!hasEndpointFilter) return true;
+    const from = matchesDependencyEndpoint(dependency.from, filters);
+    const to = matchesDependencyEndpoint(dependency.to, filters);
+    if (direction === 'incoming') return to;
+    if (direction === 'outgoing') return from;
+    return from || to;
+  });
+}
+
+export const discoverDependencyEdges = discoverDependencies;
+
 /** Validate topology references and local path safety without opening runtime state. */
 export function validateSystemModel(workspaceOrRoot = process.cwd()) {
   const errors = [];
@@ -226,6 +281,7 @@ export function validateSystemModel(workspaceOrRoot = process.cwd()) {
   const resourceIds = new Set(validateEntries(errors, model.resources, 'resources', ['id', 'name', 'kind']).keys());
   const workspaceRepositoryNames = new Set((workspaceFor(workspaceOrRoot).config.repositories ?? []).map((repo) => String(repo.name)));
   const repositoryEntries = validateEntries(errors, model.repositories, 'repositories', ['id', 'manifest_name', 'resource']);
+  validateEntries(errors, model.dependencies, 'dependencies', ['id', 'kind']);
 
   for (const [name, version] of Object.entries(model.registryVersions)) {
     if (version !== undefined && Number(version) !== SYSTEM_VERSION) addError(errors, `system/${name}.yaml.version`, `Unsupported registry version: ${version}`);
@@ -251,6 +307,17 @@ export function validateSystemModel(workspaceOrRoot = process.cwd()) {
     if (resource && resource.repository !== undefined && resource.repository !== repository.manifest_name) addError(errors, `repositories[${index}].resource`, `Resource repository does not match manifest_name: ${repository.manifest_name}`);
     checkIdList(errors, repository.systems, `repositories[${index}].systems`, systemIds, 'systems');
     checkIdList(errors, repository.layers, `repositories[${index}].layers`, layerIds, 'layers');
+  }
+  for (const [index, dependency] of model.dependencies.entries()) {
+    if (!dependency || typeof dependency !== 'object') continue;
+    validateDependencyEndpoint(errors, dependency.from, `dependencies[${index}].from`, workspaceRepositoryNames);
+    validateDependencyEndpoint(errors, dependency.to, `dependencies[${index}].to`, workspaceRepositoryNames);
+    if (dependency.required !== undefined && typeof dependency.required !== 'boolean') {
+      addError(errors, `dependencies[${index}].required`, 'Dependency required must be a boolean');
+    }
+    if (dependency.description !== undefined && typeof dependency.description !== 'string') {
+      addError(errors, `dependencies[${index}].description`, 'Dependency description must be a string');
+    }
   }
   for (const [name, repo] of Object.entries<any>(workspaceFor(workspaceOrRoot).config.repositories ?? {})) {
     if (repo && typeof repo === 'object' && repo.path !== undefined && !safeRelativePath(repo.path, model.root)) addError(errors, `workspace.repositories.${name}.path`, 'Repository paths must be relative and stay inside the workspace root');
@@ -278,6 +345,7 @@ export function initializeSystemRegistries(root) {
     layers: writeRegistry(root, SYSTEM_REGISTRY_FILES.layers, 'layers'),
     resources: writeRegistry(root, SYSTEM_REGISTRY_FILES.resources, 'resources'),
     repositories: writeRegistry(root, SYSTEM_REGISTRY_FILES.repositories, 'repositories'),
+    dependencies: writeRegistry(root, SYSTEM_REGISTRY_FILES.dependencies, 'dependencies'),
   };
 }
 

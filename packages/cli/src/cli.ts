@@ -44,6 +44,7 @@ import {
   FileKnowledgeProvider,
   runGit,
   discoverResources,
+  discoverDependencies,
   loadSystemModel,
   validateSystemModel,
 } from '@agentic-workspace/core';
@@ -68,6 +69,7 @@ Usage:
   ws compose task context <file> --step <id> [--json]
   ws compose task run <file> --step <id> [--attempt <n>] [--expect-context <sha256>] [--json]
   ws discover [--system <id>] [--layer <id>] [--kind <kind>] [--json]
+  ws dependencies [--repository <name>] [--module <path>] [--direction incoming|outgoing|both] [--kind <kind>] [--json]
   ws validate [--json]
   ws generate [--json]
   ws agent add <name> [--command <argv>] [--concurrency allow|forbid]
@@ -284,6 +286,34 @@ function commandDiscover(positionals, options, context) {
   output(rows, options, context);
 }
 
+function dependencyEndpointLabel(endpoint) {
+  if (!endpoint?.module) return endpoint?.repository ?? '';
+  return `${endpoint.repository}:${endpoint.module}`;
+}
+
+function commandDependencies(positionals, options, context) {
+  rejectUnknown(options, ['repository', 'module', 'direction', 'kind', 'json']);
+  if (positionals.length > 1) throw new WorkspaceError('ws dependencies does not accept positional arguments');
+  const workspace = discoverWorkspace(context.cwd);
+  const dependencies = discoverDependencies(workspace, {
+    ...(options.repository !== undefined ? { repository: options.repository } : {}),
+    ...(options.module !== undefined ? { module: options.module } : {}),
+    ...(options.direction !== undefined ? { direction: options.direction } : {}),
+    ...(options.kind !== undefined ? { kind: options.kind } : {}),
+  });
+  if (options.json) {
+    output(dependencies, options, context);
+    return;
+  }
+  output(dependencies.map((dependency) => ({
+    id: dependency.id,
+    from: dependencyEndpointLabel(dependency.from),
+    to: dependencyEndpointLabel(dependency.to),
+    kind: dependency.kind,
+    required: dependency.required === undefined ? true : dependency.required,
+  })), options, context);
+}
+
 function commandValidate(positionals, options, context) {
   rejectUnknown(options, ['json']);
   if (positionals.length > 1) throw new WorkspaceError('ws validate does not accept positional arguments');
@@ -406,6 +436,7 @@ async function commandStatus(options, context) {
         layers: topology.layers,
         resources: topology.resources,
         repositories: topology.repositories,
+        dependencies: topology.dependencies,
         derived: topology.derived,
         repository_status: repositoryStatus,
       },
@@ -646,6 +677,8 @@ export async function main(argv = [], suppliedContext: any = {}) {
     case 'compose': return commandCompose(positionals, options, context);
     case 'repo': return commandRepo(positionals, options, context);
     case 'discover': return commandDiscover(positionals, options, context);
+    case 'dependencies':
+    case 'deps': return commandDependencies(positionals, options, context);
     case 'validate': return commandValidate(positionals, options, context);
     case 'generate': return commandGenerate(positionals, options, context);
     case 'agent': return commandAgent(positionals, options, context);

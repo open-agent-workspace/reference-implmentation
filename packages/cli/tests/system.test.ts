@@ -39,3 +39,40 @@ test('discover filters declared resources and validate does not create runtime s
   assert.deepEqual(status.reconciled_orphans, []);
   await readFile(join(root, 'system', 'resources.yaml'), 'utf8');
 });
+
+test('dependencies lists repository and module edges and supports direction filters', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ws-cli-dependencies-'));
+  await runWs(root, ['init']);
+  await writeFile(join(root, '.workspace', 'workspace.yaml'), [
+    'version: 1',
+    'repositories:',
+    '  - name: app',
+    '    path: repos/app',
+    '    role: primary',
+    '    context: true',
+    '  - name: docs',
+    '    path: repos/docs',
+    '    role: secondary',
+    '    context: true',
+  ].join('\n'));
+  await writeFile(join(root, 'system', 'dependencies.yaml'), [
+    'version: 1',
+    'dependencies:',
+    '  - id: app-cli-core',
+    '    from: { repository: app, module: packages/cli }',
+    '    to: { repository: app, module: packages/core }',
+    '    kind: imports',
+    '  - id: docs-app',
+    '    from: { repository: docs }',
+    '    to: { repository: app }',
+    '    kind: documents',
+  ].join('\n'));
+
+  const all = JSON.parse(await runWs(root, ['dependencies', '--json']));
+  assert.deepEqual(all.map((entry) => entry.id), ['app-cli-core', 'docs-app']);
+  const incoming = JSON.parse(await runWs(root, ['deps', '--repository', 'app', '--direction', 'incoming', '--json']));
+  assert.deepEqual(incoming.map((entry) => entry.id), ['app-cli-core', 'docs-app']);
+  const human = await runWs(root, ['dependencies', '--repository', 'app', '--direction', 'outgoing']);
+  assert.match(human, /app:packages\/cli/);
+  assert.match(human, /app:packages\/core/);
+});

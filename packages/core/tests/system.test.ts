@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   addRepository,
+  discoverDependencies,
   discoverResources,
   initWorkspace,
   loadSystemModel,
@@ -33,7 +34,68 @@ test('init creates system registries and loads an empty valid topology', () => {
     const model = loadSystemModel(root);
     assert.equal(model.derived, false);
     assert.deepEqual(model.resources, []);
+    assert.deepEqual(model.dependencies, []);
     assert.equal(validateSystemModel(root).valid, true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('dependency registry supports repository and module edges with directional discovery', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'ws-system-dependencies-'));
+  try {
+    initWorkspace(root);
+    const app = await gitRepository(root, 'app');
+    const docs = await gitRepository(root, 'docs');
+    await addRepository(root, app, { name: 'app' });
+    await addRepository(root, docs, { name: 'docs' });
+    writeFileSync(join(root, 'system', 'dependencies.yaml'), [
+      'version: 1',
+      'dependencies:',
+      '  - id: app-cli-core',
+      '    from:',
+      '      repository: app',
+      '      module: packages/cli',
+      '    to:',
+      '      repository: app',
+      '      module: packages/core',
+      '    kind: imports',
+      '    required: true',
+      '  - id: docs-app',
+      '    from:',
+      '      repository: docs',
+      '    to:',
+      '      repository: app',
+      '    kind: documents',
+    ].join('\n'));
+
+    assert.deepEqual(discoverDependencies(root, { repository: 'app', direction: 'outgoing' }).map((entry) => entry.id), ['app-cli-core']);
+    assert.deepEqual(discoverDependencies(root, { repository: 'app', direction: 'incoming' }).map((entry) => entry.id), ['app-cli-core', 'docs-app']);
+    assert.deepEqual(discoverDependencies(root, { module: 'packages/core', direction: 'incoming' }).map((entry) => entry.id), ['app-cli-core']);
+    assert.deepEqual(discoverDependencies(root, { module: 'packages/core' }).map((entry) => entry.id), ['app-cli-core']);
+    assert.equal(validateSystemModel(root).valid, true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('dependency validation rejects unknown repositories and escaping module paths', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'ws-system-dependencies-invalid-'));
+  try {
+    initWorkspace(root);
+    const app = await gitRepository(root, 'app');
+    await addRepository(root, app, { name: 'app' });
+    writeFileSync(join(root, 'system', 'dependencies.yaml'), [
+      'version: 1',
+      'dependencies:',
+      '  - id: invalid',
+      '    from:',
+      '      repository: missing',
+      '      module: ../outside',
+      '    to:',
+      '      repository: app',
+      '    kind: imports',
+    ].join('\n'));
+    const report = validateSystemModel(root);
+    assert.equal(report.valid, false);
+    assert.ok(report.errors.some((error) => error.path.includes('dependencies[0].from.repository')));
+    assert.ok(report.errors.some((error) => error.path.includes('dependencies[0].from.module')));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

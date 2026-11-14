@@ -2,3 +2,7 @@ packages:
   - packages/*
 
 onlyBuiltDependencies: []
+
+overrides:
+  '@agentic-workspace/cli': link:packages/cli
+  agentic-workspace-reference-implementation: 'link:'

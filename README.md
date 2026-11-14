@@ -7,8 +7,9 @@ monorepo or letting agents write into the human checkout.
 
 The durable `system/` registries provide the architecture-level discovery
 surface: systems explain responsibility, layers explain architectural role,
-and resources describe what exists. They are declaration-only in this
-version; runtime adapters and reconciliation remain separate concerns.
+resources describe what exists, and dependencies connect repositories or
+modules. They are declaration-only in this version; runtime adapters and
+reconciliation remain separate concerns.
 
 The reference convention treats a workspace as a Git control repository. Open
 that control repository as the coding agent’s project root. The repositories
@@ -107,6 +108,7 @@ ports.
   ws repo sync [name]
   ws repo list
   ws discover [--system <id>] [--layer <id>] [--kind <kind>] [--json]
+  ws dependencies [--repository <name>] [--module <path>] [--direction incoming|outgoing|both] [--kind <kind>] [--json]
   ws validate [--json]
   ws generate
   ws agent add <name> [--command <command>] [--concurrency allow|forbid]
@@ -148,7 +150,8 @@ system/
 ├── systems.yaml                 # responsibility/product boundaries
 ├── layers.yaml                  # architectural roles
 ├── resources.yaml               # repos, services, skills, jobs, and other resources
-└── repos.yaml                   # repository manifest-to-resource mappings
+├── repos.yaml                   # repository manifest-to-resource mappings
+└── dependencies.yaml            # reviewed repository/module dependency edges
 repos/                            # ignored; independent Git repositories
 ├── api-service/.git/
 ├── web-client/.git/
@@ -156,10 +159,27 @@ repos/                            # ignored; independent Git repositories
 ```
 
 `ws discover` queries declared resources by system, layer, or kind. `ws
-validate` checks registry structure, references, repository manifest names,
-and local path safety without opening SQLite or mutating runtime state. Older
+dependencies` queries declared repository/module edges and can filter by
+direction, repository, module, or dependency kind. `ws validate` checks
+registry structure, references, repository manifest names, dependency
+endpoints, and local path safety without opening SQLite or mutating runtime
+state. Older
 workspaces with no `system/` registries derive repository resources from
 `.workspace/workspace.yaml` until registries are added.
+
+Dependencies are explicit reviewed relationships, not inferred package-manager
+metadata or semantic search. An endpoint names a registered repository and may
+include a repository-relative module path:
+
+```yaml
+version: 1
+dependencies:
+  - id: cli-imports-core
+    from: { repository: reference, module: packages/cli }
+    to: { repository: reference, module: packages/core }
+    kind: imports
+    required: true
+```
 
 The manifest, context, generated guidance, skills, profiles, history
 summaries, and proposals are durable and Git-friendly. The `repos/` directory

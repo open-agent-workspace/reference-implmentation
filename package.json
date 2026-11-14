@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "TypeScript reference implementation of an agentic engineering workspace",
-  "packageManager": "pnpm@11.11.0",
+  "packageManager": "pnpm@12.5.1",
   "engines": {
     "node": ">=24"
   },
@@ -20,5 +20,8 @@
     "@types/node": "^24.3.0",
     "typescript": "7.0.2"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "agentic-workspace-reference-implementation": "link:"
+  }
 }

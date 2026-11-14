@@ -8,7 +8,10 @@
   },
   "main": "./dist/src/cli.js",
   "types": "./dist/src/cli.d.ts",
-  "files": ["bin", "dist"],
+  "files": [
+    "bin",
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
@@ -16,6 +19,7 @@
     "test:coverage": "node --test --experimental-test-coverage dist/tests/*.test.js"
   },
   "dependencies": {
+    "@agentic-workspace/cli": "link:",
     "@agentic-workspace/core": "workspace:*"
   }
 }
