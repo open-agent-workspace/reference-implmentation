@@ -257,5 +257,7 @@ repositories, instructions or skills. Members retain their IDs and standalone
 workflows. See the [assessment and phased plan](docs/composable-workspaces.md),
 [ADR](docs/adr-001-composable-workspaces.md), and
 [dashboard / Rust companion / ESP32 example](docs/composable-workspaces-example.md).
-The initial feature supports metadata, inspection, validation and relocation;
-scoped context resolution and coordinated dispatch remain planned.
+The feature supports membership, scoped context explanation and explicit
+caller-owned subtask dispatch through isolated member Runs. See the
+[execution contract](docs/composable-workspaces-execution.md) for grants,
+integration gates, explicit retries and recovery.

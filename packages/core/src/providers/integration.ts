@@ -70,7 +70,7 @@ async function hasUnsafeCanonicalChanges(repoPath) {
   const rows = (await statusPorcelain(repoPath)).split('\n').filter(Boolean);
   return rows.some((line) => {
     const path = line.slice(3).replace(/^"|"$/g, '');
-    return !path.startsWith('.workspace/history/runs/') && !path.startsWith('.workspace/proposals/');
+    return !path.startsWith('.workspace/history/compositions/') && !path.startsWith('.workspace/history/runs/') && !path.startsWith('.workspace/proposals/');
   });
 }
 
@@ -156,7 +156,7 @@ export async function integrateCandidate({
         });
         if (validationResult === false) throw new Error('Validation returned false');
       } catch (cause) {
-        throw new IntegrationError(`Candidate validation failed; worktree preserved: ${candidateWorktree}`, {
+        throw new IntegrationError(`Candidate validation failed: ${cause.message}; worktree preserved: ${candidateWorktree}`, {
           phase: 'validation',
           candidate: candidateRecord,
           cause,

@@ -4,6 +4,13 @@ import { join, resolve } from 'node:path';
 import { parseArgs, rejectUnknown, requirePositional } from './args.js';
 import { printValue } from './output.js';
 import {
+  renderCompositionContext,
+  rehydrateCompositionContext,
+  resolveCompositionContext,
+  loadCompositionTask,
+  compositionTaskHash,
+  inspectCompositionTask,
+  dispatchCompositionStep,
   createComposition,
   addCompositionMember,
   removeCompositionMember,
@@ -55,6 +62,11 @@ Usage:
   ws compose remove <alias> [--json]
   ws compose relocate <alias> <workspace-path> [--json]
   ws compose list|inspect|validate [--json]
+  ws compose context --member <alias> --repo <name> [--allow-read instructions|context|skills ...]
+         [--task-path <path> ...] [--shared <path> ...] [--skill <id> ...] [--json]
+  ws compose task validate|inspect <file> [--json]
+  ws compose task context <file> --step <id> [--json]
+  ws compose task run <file> --step <id> [--attempt <n>] [--expect-context <sha256>] [--json]
   ws discover [--system <id>] [--layer <id>] [--kind <kind>] [--json]
   ws validate [--json]
   ws generate [--json]
@@ -98,10 +110,14 @@ function runtime(workspace) {
     if (!run) throw new WorkspaceError(`Run not found for candidate: ${runId}`);
     const profile = loadAgentProfile(workspace, run.profile);
     const commands = profile.validation ?? [];
+    let instructions = profile.instructions ?? '';
+    if (run.intent?.resolved_context) {
+      instructions = [renderCompositionContext(rehydrateCompositionContext(run.intent.resolved_context)), instructions].filter(Boolean).join('\n\nAgent profile instructions:\n');
+    }
     const contextPaths = run.context_paths_json ?? [];
     const values = {
       prompt: run.purpose ?? run.objective ?? '',
-      instructions: profile.instructions ?? '',
+      instructions,
       worktree: worktreePath,
       cwd: worktreePath,
       workspace: workspace.root,
@@ -538,9 +554,54 @@ async function commandCleanup(options, context) {
   } finally { closeRuntime(state); }
 }
 
-function commandCompose(positionals, options, context) {
+async function commandCompose(positionals, options, context) {
   const workspace = discoverWorkspace(context.cwd);
   const action = requirePositional(positionals, 1, 'composition action');
+  if (action === 'context') {
+    rejectUnknown(options, ['member', 'repo', 'profile', 'allow-read', 'allow-write', 'allow-start', 'task-path', 'shared', 'skill', 'json']);
+    if (positionals.length !== 2) throw new WorkspaceError('compose context does not accept positional arguments');
+    if (!options.member || !options.repo) throw new WorkspaceError('compose context requires --member and --repo');
+    const plan = resolveCompositionContext(workspace, { member: options.member, repository: options.repo, profile: options.profile,
+      paths: options['task-path'], shared: options.shared, skills: options.skill,
+      grants: { read: options['allow-read'] ?? [], write: Boolean(options['allow-write']), start_agent: Boolean(options['allow-start']) } });
+    output(plan, options, context);
+    if (!plan.valid) throw new WorkspaceError('Composition context has conflicts');
+    return;
+  }
+  if (action === 'task') {
+    const subaction = requirePositional(positionals, 2, 'Task action');
+    if (!['validate', 'inspect', 'context', 'run'].includes(subaction)) throw new WorkspaceError(`Unknown composition Task action: ${subaction}`);
+    rejectUnknown(options, subaction === 'run' ? ['json', 'step', 'attempt', 'expect-context'] : subaction === 'context' ? ['json', 'step'] : ['json']);
+    if (positionals.length !== 4) throw new WorkspaceError('compose task requires one Task file');
+    const task = loadCompositionTask(workspace, resolve(context.cwd, positionals[3]));
+    if (subaction === 'inspect') return output(inspectCompositionTask(workspace, task), options, context);
+    if (subaction === 'context' || subaction === 'run') {
+      if (!options.step) throw new WorkspaceError('--step is required');
+      const step = task.subtasks.find((item) => item.id === options.step);
+      if (!step) throw new WorkspaceError(`Subtask not found: ${options.step}`);
+      if (subaction === 'context') {
+        const plan = resolveCompositionContext(workspace, { member: step.member, repository: step.repository, profile: step.profile, grants: step.grants, ...step.context });
+        output(plan, options, context);
+        if (!plan.valid) throw new WorkspaceError('Composition context has conflicts');
+        return;
+      }
+      const result = await dispatchCompositionStep(workspace, task, options.step, { attempt: options.attempt === undefined ? 1 : Number(options.attempt), expectedContextHash: options['expect-context'], runtimeFactory: runtime });
+      output(result, options, context);
+      if (['FAILED', 'CANCELLED', 'ORPHANED', 'REJECTED', 'INTEGRATION_FAILED'].includes(result.status)) throw new WorkspaceError(`Composition subtask ended with ${result.status}: ${result.error ?? ''}`);
+      return;
+    }
+    const errors: any[] = [];
+    for (const step of task.subtasks) {
+      try {
+        const plan = resolveCompositionContext(workspace, { member: step.member, repository: step.repository, profile: step.profile, grants: step.grants, ...step.context });
+        if (plan.workspace_id !== step.workspace_id) errors.push(`${step.id}: workspace identity mismatch`);
+        errors.push(...plan.conflicts.map((item) => `${step.id}: ${item.message}`));
+      } catch (error) { errors.push(`${step.id}: ${error.message}`); }
+    }
+    output({ valid: errors.length === 0, task: task.id, plan_sha256: compositionTaskHash(task), errors }, options, context);
+    if (errors.length) throw new WorkspaceError('Composition Task validation failed');
+    return;
+  }
   const limits = { create: 3, add: 4, remove: 3, relocate: 4, list: 2, inspect: 2, validate: 2 };
   if (!Object.hasOwn(limits, action)) throw new WorkspaceError(`Unknown composition action: ${action}`);
   rejectUnknown(options, action === 'add' ? ['json', 'role', 'access'] : ['json']);

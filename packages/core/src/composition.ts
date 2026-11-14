@@ -187,3 +187,21 @@ export function relocateCompositionMember(workspaceOrRoot: any, memberAlias: str
     return value;
   });
 }
+
+/** Resolve only a selected reference path; no unrelated members need be online. */
+export function resolveCompositionMember(workspaceOrRoot: any, selector: string) {
+  let workspace = owner(workspaceOrRoot);
+  const ancestors = [workspace];
+  const edges: any[] = [];
+  const segments = String(selector).split('/');
+  invariant(segments.length <= 64, 'Composition depth exceeds 64');
+  for (const segment of segments) {
+    const member = memberAt(workspace, loadComposition(workspace), segment);
+    invariant(!ancestors.some((item) => item.config.id === member.workspace_id), `Composition cycle at ${selector}`);
+    const loaded = memberWorkspace(workspace, member);
+    edges.push({ owner: workspace.config.id, config: manifest(workspace), ...member });
+    ancestors.push(loaded);
+    workspace = loaded;
+  }
+  return { workspace, ancestors, edges, access: edges.every((edge) => edge.access === 'read-write') ? 'read-write' : 'read-only' };
+}

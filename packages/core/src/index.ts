@@ -12,3 +12,5 @@ export * from './providers/integration.js';
 export * from './providers/knowledge-files.js';
 export * from './providers/process.js';
 export * from './composition.js';
+export * from './composition-context.js';
+export * from './composition-task.js';

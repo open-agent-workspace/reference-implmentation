@@ -5,7 +5,9 @@ import { join, resolve, basename } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { RUN_STATUSES } from './constants.js';
 import { WorkspaceError, invariant } from './errors.js';
+import { isAlive } from './providers/process.js';
 import { currentBranch } from './git.js';
+import { renderCompositionContext, verifyCompositionContext } from './composition-context.js';
 
 const execFileAsync: any = promisify(execFile);
 const ACTIVE = new Set(['CREATED', 'PREPARING', 'RUNNING', 'INTEGRATING']);
@@ -168,10 +170,10 @@ export class RunOrchestrator {
 
   #isPromotedKnowledgePath(statusLine) {
     const path = statusLine.slice(3).replace(/^"|"$/g, '');
-    return path.startsWith('.workspace/history/runs/') || path.startsWith('.workspace/proposals/');
+    return path.startsWith('.workspace/history/compositions/') || path.startsWith('.workspace/history/runs/') || path.startsWith('.workspace/proposals/');
   }
 
-  async #snapshot(repos) {
+  async #snapshot(repos, selectedContext?) {
     const snapshot = [];
     for (const repo of repos) {
       const path = resolve(this.workspace?.root ?? process.cwd(), repo.path);
@@ -179,7 +181,7 @@ export class RunOrchestrator {
       snapshot.push({ name: repoName(repo), path, commit, branch, role: repo.role, context: repo.context !== false });
     }
     const contextDir = this.workspace?.workspaceDir ? join(this.workspace.workspaceDir, 'context') : null;
-    const contextHash = contextDir ? await hashDirectory(contextDir) : null;
+    const contextHash = selectedContext ? selectedContext.sha256 : contextDir ? await hashDirectory(contextDir) : null;
     return {
       at: this.now(),
       context: {
@@ -239,26 +241,28 @@ export class RunOrchestrator {
     return { baseCommit, resultCommit, repo: repoName(repo), repoName: repoName(repo), worktreePath: worktree.path, branch: worktree.branch, changed: true };
   }
 
-  async execute({ profile: profileName, agent: agentName, prompt, objective, primaryRepo, repo, contextRepos, contextRepo, intent = {}, integrate = true, noIntegrate = false, env = {} } : any = {}) {
+  async execute({ profile: profileName, agent: agentName, prompt, objective, primaryRepo, repo, contextRepos, contextRepo, intent = {}, integrate = true, noIntegrate = false, env = {}, runId, onCreated, resolvedContext } : any = {}) {
     const name = profileName ?? agentName;
     if (!name) throw new WorkspaceError('An agent profile is required');
-    const profile = await this.#profile(name);
+    const profile = { ...(await this.#profile(name)) };
     profile.name ??= name;
     await this.#assertConcurrency(profile);
     const repos = asRepoList(this.workspace, this.store);
     if (!repos.length) throw new WorkspaceError('Workspace has no repositories');
     const mutationScope = profile.mutation_scope?.repositories;
-    if (Array.isArray(mutationScope) && mutationScope.length > 1) {
-      throw new WorkspaceError('The reference V1 runner supports one mutated repository per Run; split multi-repo work into separate Candidates');
-    }
     const scopedPrimary = Array.isArray(mutationScope)
       ? mutationScope[0]
       : (mutationScope && !['primary', 'all'].includes(mutationScope) ? mutationScope : undefined);
     const primarySelector = primaryRepo ?? repo ?? scopedPrimary;
     const primary = primarySelector
       ? repos.find((item) => repoName(item) === primarySelector || item.path === primarySelector)
-      : repos[0];
+      : (repos.find((item) => item.role === 'primary') ?? repos[0]);
     if (!primary) throw new WorkspaceError(`Primary repository not found: ${primarySelector}`);
+    const primaryByRole = repos.find((item) => item.role === 'primary') ?? repos[0];
+    const mutationAllowed = mutationScope === undefined || mutationScope === 'all'
+      || (mutationScope === 'primary' ? primary === primaryByRole
+        : Array.isArray(mutationScope) ? mutationScope.includes(repoName(primary)) : mutationScope === repoName(primary));
+    invariant(mutationAllowed, `Profile ${name} mutation scope does not allow ${repoName(primary)}`);
     const profileContext = profile.context_scope?.repositories;
     const selectedContext = contextRepos ?? contextRepo
       ?? (profileContext === 'all' ? undefined : profileContext);
@@ -273,24 +277,36 @@ export class RunOrchestrator {
         ? repos.filter((item) => (Array.isArray(selectedContext) ? selectedContext : [selectedContext]).includes(repoName(item)))
         : repos.filter((item) => item !== primary && item.context !== false);
     const contextOnly = context.filter((item) => item !== primary);
+    if (profileContext && profileContext !== 'all') {
+      const permitted = profileContext === 'none' ? [] : Array.isArray(profileContext) ? profileContext : [profileContext];
+      invariant(contextOnly.every((item) => permitted.includes(repoName(item))), `Profile ${name} context scope does not allow selected repositories`);
+    }
+    intent = { ...intent };
+    delete intent.execution_result; // reserved for verified provider evidence
+    if (!resolvedContext) delete intent.resolved_context;
+    if (runId !== undefined) invariant(/^R-[a-zA-Z0-9_-]+$/.test(runId), 'Invalid Run ID');
+    if (resolvedContext) {
+      invariant(resolvedContext.grants?.write === true && resolvedContext.grants?.start_agent === true && resolvedContext.grants?.read?.includes('source') && resolvedContext.access === 'read-write', 'Composition context lacks dispatch grants');
+      invariant(resolvedContext.repository === repoName(primary) && resolvedContext.workspace_id === this.workspace.config.id, 'Composition context targets a different workspace/repository');
+      verifyCompositionContext(resolvedContext);
+      profile.instructions = [renderCompositionContext(resolvedContext), profile.instructions ?? ''].filter(Boolean).join('\n\nAgent profile instructions:\n');
+      intent = { ...intent, resolved_context: { ...resolvedContext,
+        sources: resolvedContext.sources.map(({ content, ...source }) => source) } };
+    }
     const run = await this.#storeRun({
-      id: id(), profile: profile.name, objective: objective ?? prompt ?? '', prompt: prompt ?? objective ?? '', status: 'CREATED',
-      primaryRepo: repoName(primary), contextRepos: contextOnly.map(repoName), intent, createdAt: this.now(), updatedAt: this.now(),
+      id: runId ?? id(), profile: profile.name, objective: objective ?? prompt ?? '', prompt: prompt ?? objective ?? '', status: 'CREATED',
+      primaryRepo: repoName(primary), contextRepos: contextOnly.map(repoName), intent: { ...intent, execution_owner: { pid: process.pid } }, createdAt: this.now(), updatedAt: this.now(),
     });
     let profileLease = false;
-    if (profile.concurrency === 'forbid') {
-      try {
-        profileLease = Boolean(await invoke(this.store, ['acquireProfileLease'], profile.name, run.id));
-      } catch (error) {
-        await this.#transition(run, 'FAILED', { error: error.message, finishedAt: this.now() });
-        throw error;
-      }
-    }
     let worktree;
     let candidate;
     try {
+      await onCreated?.(run);
+      if (profile.concurrency === 'forbid') {
+        profileLease = Boolean(await invoke(this.store, ['acquireProfileLease'], profile.name, run.id));
+      }
       await this.#transition(run, 'PREPARING');
-      const snapshot = await this.#snapshot(repos);
+      const snapshot = await this.#snapshot([primary, ...contextOnly], resolvedContext);
       await this.#update(run, { snapshot });
       await this.#event(run, 'run.snapshot', snapshot);
       const primarySnap = snapshot.repos.find((item) => item.name === repoName(primary));
@@ -303,7 +319,8 @@ export class RunOrchestrator {
         });
       }
       worktree = await this.#worktree({ run, repo: primary, baseCommit: primarySnap.commit, allowDirtyCanonical: await this.#workspaceOnlyDirty(primaryPath) });
-      const workspaceContextPath = await this.#materializeWorkspaceContext(run);
+      // Composition already supplies selected shared context; do not copy unselected files or private data.
+      const workspaceContextPath = resolvedContext ? null : await this.#materializeWorkspaceContext(run);
       const contextMaterializations = [];
       for (const item of contextOnly) {
         const itemSnapshot = snapshot.repos.find((entry) => entry.name === repoName(item));
@@ -335,6 +352,7 @@ export class RunOrchestrator {
       const runEnv = Object.fromEntries(allocations.map((item) => [item.name, String(item.port)]));
       await this.#update(run, { resources: allocations, environment: runEnv });
       await this.#event(run, 'run.intent', { ...intent, primaryRepo: repoName(primary), writeScope: intent.writeScope ?? [repoName(primary)], contextRepos: contextOnly.map(repoName) });
+      if (resolvedContext) verifyCompositionContext(resolvedContext);
       await this.#transition(run, 'RUNNING');
       if (!this.agent?.run) throw new WorkspaceError('No agent provider configured');
       const result = await this.agent.run({
@@ -346,6 +364,12 @@ export class RunOrchestrator {
         contextPaths,
         env: { ...runEnv, ...env },
       });
+      await this.#update(run, { intent: { ...run.intent, execution_result: {
+        success: Boolean(result.success), exit_code: result.exitCode ?? null, logs: result.logs ?? null, validation: result.validation ?? null,
+      } } });
+      if (result.validation) await this.#event(run, 'run.validation', result.validation);
+      const persisted = await invoke(this.store, ['getRun', 'findRun'], run.id);
+      if (persisted?.status === 'CANCELLED') { run.status = 'CANCELLED'; throw new WorkspaceError('Run was cancelled'); }
       if (!result.success) {
         const detail = result.error?.message
           ?? (result.exitCode == null ? 'unknown process error' : `exit code ${result.exitCode}`);
@@ -379,7 +403,7 @@ export class RunOrchestrator {
         await invoke(this.store, ['updateCandidate', 'saveCandidate'], candidate.id, candidate, candidate);
         await this.#transition(run, 'COMPLETED', { candidate, finishedAt: this.now() });
         await this.resources?.releaseRunResources?.(run.id);
-        await invoke(this.knowledge, ['recordDurableRun'], run, candidate);
+
       } else {
         await this.resources?.releaseRunResources?.(run.id);
       }
@@ -398,14 +422,29 @@ export class RunOrchestrator {
       throw error;
     } finally {
       if (profileLease) await invoke(this.store, ['releaseProfileLease'], profile.name, run.id);
+      await this.#update(run, { finishedAt: this.now() });
+      await invoke(this.knowledge, ['recordDurableRun'], run, candidate);
     }
   }
 
   async reconcile() {
     const staleRuns = await this.resources?.reconcile?.() ?? [];
+    // A dispatcher can disappear before it launches any child process. Do not
+    // mistake an agent that outlived its dispatcher for an abandoned attempt.
+    for (const run of await this.#runs()) {
+      const pid = run.intent?.execution_owner?.pid;
+      if (!ACTIVE.has(run.status) || !pid || isAlive(pid)) continue;
+      const processes = await invoke(this.store, ['listProcesses'], { runId: run.id }) ?? [];
+      if (processes.some((item) => isAlive(item.pid))) continue;
+      if (!staleRuns.includes(run.id)) staleRuns.push(run.id);
+    }
     for (const runId of staleRuns) {
       const run = await invoke(this.store, ['getRun', 'findRun'], runId);
-      if (run && ACTIVE.has(run.status)) await this.#transition(run, 'ORPHANED', { error: 'Owned process disappeared' });
+      if (run && ACTIVE.has(run.status)) {
+        await this.#transition(run, 'ORPHANED', { error: 'Owned process disappeared', finishedAt: this.now() });
+        await this.resources?.releaseRunResources?.(runId);
+        await invoke(this.knowledge, ['recordDurableRun'], run, run.candidate);
+      }
     }
     return staleRuns;
   }
@@ -413,9 +452,10 @@ export class RunOrchestrator {
   async cancel(runId) {
     const run = await invoke(this.store, ['getRun', 'findRun'], runId);
     if (!run) throw new WorkspaceError(`Run not found: ${runId}`);
+    if (TRANSITIONS[run.status]?.has('CANCELLED')) await this.#transition(run, 'CANCELLED', { finishedAt: this.now() });
     await this.agent?.stop?.(runId);
-    if (TRANSITIONS[run.status]?.has('CANCELLED')) await this.#transition(run, 'CANCELLED');
     await this.resources?.releaseRunResources?.(runId);
+    await invoke(this.knowledge, ['recordDurableRun'], run, run.candidate);
     return run;
   }
 }

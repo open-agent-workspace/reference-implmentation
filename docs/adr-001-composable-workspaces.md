@@ -1,6 +1,6 @@
 # ADR-001: Reference independently owned workspaces
 
-Status: accepted for Phase B; context resolution and task dispatch are proposed.
+Status: accepted; Phases B, C and D are implemented.
 
 ## Context
 
@@ -42,10 +42,10 @@ replacement. Keep declarations in Git, operational member Run state in each
 member's existing SQLite store, and caller intent in its owning external system.
 No new database, workspace schema migration or configuration syntax is added.
 
-Phase B access fields describe future dispatch policy and are not enforceable
-permissions. Inspection reads manifests only and never starts agents. Future
-context and dispatch must intersect explicit grants with every nested access
-ceiling and member policy, preserving native instruction precedence and one
+Membership access fields bound the implemented dispatcher, intersecting explicit
+task grants with every nested access ceiling and member profile policy. They do
+not grant OS permissions. Membership inspection reads manifests only; scoped
+context and explicit task dispatch preserve instruction provenance and one
 mutation repository per Run. Standalone commands do not interpret composition
 metadata as authorization.
 
@@ -65,7 +65,7 @@ New references require their selected subtree to validate. Removal remains
 possible offline. Same-ID copies and malicious local filesystem races are not
 solved by a reference catalog.
 
-Scoped context explanation and caller-linked member Runs are subsequent vertical
-slices, with prerequisites and tests in the [assessment/plan](composable-workspaces.md).
+Scoped context explanation and caller-linked member Runs are implemented in the
+[execution contract](composable-workspaces-execution.md).
 This ADR does not authorize a scheduler, global worktree, cross-Git transaction,
 or a second skill manager.

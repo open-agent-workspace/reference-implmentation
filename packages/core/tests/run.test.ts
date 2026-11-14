@@ -111,7 +111,7 @@ test('cancel stops the agent, transitions the Run, and releases resources', asyn
     resources: { releaseRunResources: async (runId) => calls.push(`release:${runId}`) },
   });
   assert.equal((await orchestrator.cancel(run.id)).status, 'CANCELLED');
-  assert.deepEqual(calls, ['stop:R-cancel', 'run.cancelled', 'release:R-cancel']);
+  assert.deepEqual(calls, ['run.cancelled', 'stop:R-cancel', 'release:R-cancel']);
 });
 
 test('reconcile marks an active Run orphaned when its owned process disappears', async () => {
@@ -127,4 +127,67 @@ test('reconcile marks an active Run orphaned when its owned process disappears',
   assert.deepEqual(await orchestrator.reconcile(), [run.id]);
   assert.equal(run.status, 'ORPHANED');
   assert.equal(run.error, 'Owned process disappeared');
+});
+
+test('only selected repositories are snapshotted; unavailable unrelated registrations cannot block a narrow Run', async () => {
+  const f: any = fixtures();
+  f.git.head = async (path) => { if (path.includes('secondary')) throw new Error('unavailable'); return 'base'; };
+  const runner = new RunOrchestrator({ ...f, profileResolver: async () => ({ name: 'coder', context_scope: { repositories: 'none' } }) });
+  const run = await runner.execute({ profile: 'coder', repo: 'primary', contextRepos: 'none', noIntegrate: true });
+  assert.deepEqual(run.snapshot.repos.map((item) => item.name), ['primary']);
+});
+
+test('explicit repository selectors cannot expand mutation or context profile scopes', async () => {
+  const f: any = fixtures();
+  const runner = new RunOrchestrator({ ...f, profileResolver: async () => ({ name: 'coder', mutation_scope: { repositories: 'primary' }, context_scope: { repositories: 'none' } }) });
+  await assert.rejects(() => runner.execute({ profile: 'coder', repo: 'secondary' }), /mutation scope/);
+  await assert.rejects(() => runner.execute({ profile: 'coder', repo: 'primary', contextRepos: ['secondary'] }), /context scope/);
+  assert.equal(f.records.length, 0);
+});
+
+test('pending Candidates and agent failures both retain durable Run evidence', async () => {
+  const f: any = fixtures(); const durable = [];
+  const runner = new RunOrchestrator({ ...f, profileResolver: async () => ({ name: 'coder' }), knowledge: { recordDurableRun: async (run) => durable.push({ ...run }) } });
+  await runner.execute({ profile: 'coder', noIntegrate: true });
+  f.agent.run = async () => ({ success: false, exitCode: 1 });
+  await assert.rejects(() => runner.execute({ profile: 'coder', noIntegrate: true }), /exit code 1/);
+  assert.deepEqual(durable.map((run) => run.status), ['CANDIDATE', 'FAILED']);
+  assert.ok(durable.every((run) => run.finishedAt));
+});
+
+test('reconciliation recovers a dispatcher that disappeared before process launch, but preserves a live child', async () => {
+  const f: any = fixtures();
+  f.records.push({ id: 'R-abandoned', profile: 'coder', status: 'PREPARING', intent: { execution_owner: { pid: 2147483647 } } });
+  f.records.push({ id: 'R-live-child', profile: 'coder', status: 'RUNNING', intent: { execution_owner: { pid: 2147483647 } } });
+  f.store.getRun = (id) => f.records.find((run) => run.id === id);
+  f.store.listProcesses = ({ runId }) => runId === 'R-live-child' ? [{ pid: process.pid }] : [];
+  const runner = new RunOrchestrator(f);
+  assert.deepEqual(await runner.reconcile(), ['R-abandoned']);
+  assert.equal(f.records[0].status, 'ORPHANED');
+  assert.equal(f.records[1].status, 'RUNNING');
+});
+
+test('a profile may allow several targets while each Run still mutates one selected repository', async () => {
+  const f: any = fixtures();
+  const runner = new RunOrchestrator({ ...f, profileResolver: async () => ({ name: 'coder', mutation_scope: { repositories: ['primary', 'secondary'] } }) });
+  await runner.execute({ profile: 'coder', repo: 'secondary', contextRepos: 'none', noIntegrate: true });
+  assert.equal(f.gitCalls.length, 1);
+  assert.equal(f.gitCalls[0].repoPath, '/tmp/secondary');
+});
+
+test('an agent completion cannot overwrite a cancellation requested during execution', async () => {
+  const f: any = fixtures();
+  f.store.getRun = (id) => f.records.find((run) => run.id === id);
+  const runner = new RunOrchestrator({ ...f, profileResolver: async () => ({ name: 'coder' }) });
+  f.agent.run = async ({ run }) => { await runner.cancel(run.id); return { success: true }; };
+  await assert.rejects(() => runner.execute({ profile: 'coder', noIntegrate: true }), /cancelled/);
+  assert.equal(f.records[0].status, 'CANCELLED');
+  assert.equal(f.candidates.length, 0);
+});
+
+test('the member Run boundary independently rejects composition context without dispatch grants', async () => {
+  const f: any = fixtures();
+  const runner = new RunOrchestrator({ ...f, profileResolver: async () => ({ name: 'coder' }) });
+  await assert.rejects(() => runner.execute({ profile: 'coder', resolvedContext: { grants: { read: ['source'], write: true }, access: 'read-write' } }), /lacks dispatch grants/);
+  assert.equal(f.records.length, 0);
 });

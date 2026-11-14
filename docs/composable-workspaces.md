@@ -1,8 +1,7 @@
 # Composable workspaces: assessment and implementation plan
 
-This change implements Phase B: reference-only composition. Context/skill
-resolution and coordinated execution below are proposed follow-ups, not new
-runtime capabilities. A composition coordinates independently owned workspaces;
+Phases B, C and D are implemented. Stable workspace references now support
+scoped context and explicit caller-selected subtask dispatch through member Runs. A composition coordinates independently owned workspaces;
 it does not register their repositories in its own manifest.
 
 ## Architecture assessment (Phase A)
@@ -82,8 +81,8 @@ across machines are outside this local registry's verification boundary.
 
 Metadata can be reviewed and synchronized through the control workspace's Git
 repository. Paths may need local relocation after clone; relative sibling layouts
-remain portable when moved together. No new database or database migration is
-required. Version 1 rejects unsupported versions rather than guessing.
+remain portable when moved together. Reference metadata needs no new database or standalone workspace migration;
+dispatch adds the local lease-table migration described below. Version 1 rejects unsupported versions rather than guessing.
 
 Mutations acquire an exclusive local `.workspace/composition.yaml.lock`, reread
 the current declaration, validate it, and atomically rename a temporary file over
@@ -94,10 +93,9 @@ a stale lock or leftover `.tmp` file. These files must not be committed. This is
 local filesystem coordination, not a distributed lock or power-loss durability
 guarantee; resolve Git synchronization conflicts before running commands.
 
-`access` defaults to `read-only`. In Phase B it records an intended maximum for a
-future composition dispatcher; **it grants no authority and enforces no OS
-permissions**. Commands read member manifests only, never source, root AGENTS,
-profiles, history, instructions or skills. They never start agents. Editing
+`access` defaults to `read-only`. It bounds the composition dispatcher and **it grants no authority and enforces no OS
+permissions**. Membership/inspection commands read member manifests only. Context and Task
+commands require explicit source grants and can start only a selected member Run. Editing
 membership requires filesystem permission to the coordinator; the CLI does not
 provide user roles or ACLs. Remove edits only this manifest, even when a member
 is unavailable. No delete/relocate-files command is introduced.
@@ -122,142 +120,23 @@ names and diagnostics; neither requires repository checkouts to be available.
 `validate` emits structured errors and exits nonzero on invalid references.
 Top-level `ws validate` continues validating the existing System model; use
 `ws compose validate` for composition references. A workspace without a composition
-continues using all existing commands without migration. `ws run` is unchanged;
+continues using all existing commands without migration. Standalone `ws run` retains its lifecycle and now enforces explicit profile scopes;
 composition members are not silently added as writable or read-only repositories.
 
-## Deterministic context plan (Phase C, proposed)
+## Scoped context and subtask dispatch (Phases C and D)
 
-Extend preparation immediately before `CommandAgentProvider.prepare` and reuse
-`RunOrchestrator` shared-context materialization. Do not add a separate skill
-installation, copying or management system. The existing builder is small;
-extract its shared selection/provenance logic rather than claim a resolver
-already exists.
+See the [execution contract](composable-workspaces-execution.md) for the implemented
+context resolver, explicit grants, caller-owned Task model, CLI commands,
+dependency gates, integration validation, retries and interruption recovery.
+The architecture table above records the pre-composition assessment baseline;
+selected-only snapshots, profile scope enforcement, read-only inspection and
+all-outcome Run summaries are now implemented prerequisites.
 
-1. Accept explicit selected member paths such as `dashboard`, `companion`, or
-   `subsystem/esp32`, selected repository names, purpose and approved read/write
-   grants. Declared roles/System resources help an agent propose ownership; no
-   semantic task classifier silently authorizes access. Unselected unavailable
-   members do not block preparation; a selected missing reference does.
-2. Verify each ID and effective grants along the complete reference path.
-   Nested access is the intersection of every ancestor restriction, never a
-   union of grants. Reading metadata, instructions, source, private context and
-   starting an agent are separate capabilities. Reject insufficient grants
-   before reading files. Private profiles/history/context require explicit
-   access and never enter a default shared bundle.
-3. Snapshot composition-owned architecture/policy/contracts selected for this
-   task from the existing context/System conventions. Record source hashes,
-   paths and selection reasons. The composition's instruction scope applies
-   to integration/contracts; it cannot redefine a member's build, credentials
-   or mutation policy.
-4. Build a separate execution bundle per target workspace. Load its root
-   AGENTS and selected repository/path-local conventions using the native
-   agent adapter's instruction rules. Preserve root-to-nearest instruction
-   precedence within that workspace. Sibling instructions are separate scoped
-   documents; never concatenate them into one global authority. Agent
-   system/developer/user precedence stays with the provider.
-5. Discover skill metadata lazily from the original workspace's `.agents/skills`
-   convention and profile-selected skills. Expose names, descriptions, owner
-   IDs and source paths; read a SKILL body only when explicitly selected or
-   matched by the agent's existing invocation mechanism. Qualify duplicate
-   names by workspace ID. Do not copy or install member skills in the parent.
-6. Deduplicate by owner ID, canonical source path and content hash; preserve
-   repeated provenance/selection reasons. A hash alone must not collapse two
-   distinct authority scopes. Shared descendants do not duplicate context.
-7. Reject machine-readable grant/scope conflicts with both source references.
-   Textual instruction contradictions cannot be reliably inferred by string
-   comparison: expose provenance, flag known structured conflicts and surface
-   unresolved semantic conflicts for review. A composition rule never silently
-   overrides member policy; narrow the task or resolve the conflict explicitly.
-8. Add `ws compose context --member <alias> --repo <name> --json` with repeatable
-   selections and an explain-only default. Return ordered scoped sources,
-   omitted sources/reasons, lazy skill descriptors, grants and conflicts.
-   Dispatch must consume the same resolved plan/hash to avoid inspection drift.
+## Integration and compatibility
 
-Tests: selected-only instructions and skill discovery; native precedence;
-private-context denial; unrelated missing member; selected missing member;
-identity drift; shared descendants and duplicate content; skill name collisions;
-nested read-only restrictions; structured conflicts with source locations;
-provider integration preserves standalone prompt behavior. No blanket promise
-of detecting arbitrary natural-language contradictions.
-
-## Cross-workspace coordination plan (Phase D, proposed)
-
-Tasks/plans/retries belong to the caller per the product design. Represent a
-parent Task and workspace-specific subtasks in caller-owned intent, then reuse
-one member Run per attempt and one Candidate per mutation repository. Example
-proposed request/result envelope (not a CLI command or persisted Task schema):
-
-```yaml
-version: 1
-composition: <control workspace id>
-task: remote-focus
-subtasks:
-  - id: contract
-    member: integration
-    repository: contracts
-    depends_on: []
-  - id: emit
-    member: esp32
-    repository: firmware
-    depends_on: [contract]
-  - id: route
-    member: dashboard
-    repository: web
-    depends_on: [contract]
-  - id: activate
-    member: companion
-    repository: desktop
-    depends_on: [contract]
-```
-
-The caller owns this DAG, validates subtask IDs/dependencies, detects cycles and
-chooses serial or concurrent execution. A future dispatcher validates one
-selected member grant and invokes that member's existing runner/profile/store,
-passing `intent.lineage.task`, subtask/attempt IDs and the composition ID in
-`intent`. It does not use a parent profile to bypass a member's policy. Each
-result references owning workspace ID, Run ID and Candidate ID; no parent process
-must adopt a member's database or filesystem. Correlation fields are caller
-claims, not verified execution evidence.
-
-Aggregate status must distinguish blocked, running, failed, partial, ready for
-review and integrated. Candidate creation is not integration success. Read
-member status/results on demand, retain the last observation for offline members,
-and label it stale. The external caller decides failure propagation, retry
-budgets and cancellation; retry creates a new attempt/Run with the same subtask
-identity, retaining previous results. Idempotency keys belong to the caller and
-are not currently guaranteed by `ws run`. Interrupted ownership is reconciled by
-the owning workspace; unresolved Candidates are preserved. Independent commits
-can be integrated in dependency order after repository checks and shared contract
-validation. Failures are partial outcomes, never an atomic cross-Git rollback.
-
-Before dispatch implementation: fix selected-only snapshots; verify declared
-mutation scope cannot be expanded by explicit selectors; harden context grants;
-and make durable Run results reliable for every terminal outcome. Evaluate the
-existing `cmwen/coding-agent-orchestrator` consumer rather than building scheduling,
-retry and durable Task state here. These gaps are explicit prerequisites, not
-solved by composition metadata.
-
-## Integration plan and acceptance (Phase E)
-
-Phase B includes core tests and an in-process CLI integration test with existing
-independent temporary workspaces. They verify unchanged original manifests,
-multi-composition membership, nested/shared references, cycle rollback, invalid
-schemas/aliases/access, identity mismatch, missing references, relocation, exact
-root lookup, stale writer locks and non-destructive removal. Existing standalone
-workspace, CLI, Git, Run and store tests remain regression requirements.
-
-For C/D, add provider end-to-end fixtures using a fake agent in separate dashboard,
-Rust companion and firmware repositories with distinct instruction/skill markers.
-Prove only selected markers reach each process and shared contracts appear once;
-check dependency order, partial completion, failed validation and interruption/
-retry recovery. Use temporary fixtures to simulate missing members; never move
-or delete live repositories. No hardware or GPUI SDK is required for metadata
-and scope tests; actual hardware integration remains the firmware owner's check.
-
-Compatibility: no standalone config/schema/database changes. Initial acceptance
-covers composition create/list/inspect/validate, member ownership metadata,
-identity and Git independence, graceful missing references and safe removal.
-Automatic scoped instruction loading, agent dispatch and coordinated Task status
-remain future acceptance gates; Phase B does not claim all ten feature criteria.
-
+Standalone manifests and composition version 1 remain compatible. The operational
+SQLite schema adds a local dispatcher-lease table. There is no new database,
+mandatory Task store, scheduler, cross-Git transaction or skill manager.
+[Tests and validation](composable-workspaces-validation.md) cover the original
+reference slice plus scoped context and real cross-workspace fake-agent flows.
 See the [multi-application example](composable-workspaces-example.md).

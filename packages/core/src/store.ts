@@ -129,16 +129,21 @@ const MIGRATIONS = [
     owner TEXT NOT NULL,
     acquired_at TEXT NOT NULL
   );`,
+  `CREATE TABLE IF NOT EXISTS composition_leases (
+    key TEXT PRIMARY KEY,
+    token TEXT NOT NULL,
+    pid INTEGER NOT NULL
+  );`,
 ];
 
 export class OperationalStore {
   [key: string]: any;
   constructor(pathOrWorkspace = process.cwd(), options: any = {}) {
     this.path = dbPathFrom(pathOrWorkspace);
-    mkdirSync(dirname(this.path), { recursive: true });
-    this.db = new DatabaseSync(this.path);
+    if (!options.readonly) mkdirSync(dirname(this.path), { recursive: true });
+    this.db = new DatabaseSync(this.path, { readOnly: Boolean(options.readonly) });
     this.db.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
-    this.migrate();
+    if (!options.readonly) this.migrate();
     if (options.readonly) this.readonly = true;
   }
 
@@ -459,6 +464,23 @@ export class OperationalStore {
 
   listProfileLeases() {
     return this.db.prepare('SELECT * FROM profile_leases ORDER BY profile').all();
+  }
+
+  /** Local dispatcher lease; reclaim only when its owner process is known to be gone. */
+  acquireCompositionLease(key, token) {
+    return this.transaction(() => {
+      const existing = this.db.prepare('SELECT * FROM composition_leases WHERE key = ?').get(key);
+      if (existing) {
+        let alive = true;
+        try { process.kill(existing.pid, 0); } catch (error) { alive = error.code !== 'ESRCH'; }
+        invariant(!alive, `Composition step is already being dispatched by PID ${existing.pid}`);
+      }
+      this.db.prepare('INSERT OR REPLACE INTO composition_leases(key, token, pid) VALUES (?, ?, ?)').run(key, token, process.pid);
+    });
+  }
+
+  releaseCompositionLease(key, token) {
+    return this.db.prepare('DELETE FROM composition_leases WHERE key = ? AND token = ?').run(key, token).changes > 0;
   }
 
   // Generic names are provided for IntegrationProvider and embedders that do

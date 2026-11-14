@@ -38,8 +38,8 @@ contracts/tests, not copies of dashboard, Rust or firmware source.
 For “open a Codex Desktop session when a hardware button is pressed”, use the
 roles and member repository names in `compose inspect` to identify ownership:
 firmware emits a command, dashboard routes it, companion activates the session,
-and the integration owner defines the contract. Phase B inspects this structure;
-it does not automatically load instructions, start parent tasks or dispatch Runs.
+and the integration owner defines the contract. Composition inspection identifies this structure. Scoped context and explicit
+subtask dispatch are now available; Task intent remains caller-owned.
 
 Today, start independent bounded Runs from each member, with caller-owned Task
 correlation in the existing `--intent` object:
@@ -54,9 +54,9 @@ ws runs --json
 
 Use that member's existing profile name instead of `coder` if different. This
 command does not import composition context; pass the reviewed contract through
-approved existing context conventions. The proposed C/D interfaces in the
-[plan](composable-workspaces.md) will make that selection inspectable and link
-coordinated results without forcing one working directory or shared Git history.
+approved existing context conventions. The [execution contract](composable-workspaces-execution.md) makes scoped
+selection and coordinated results inspectable without a shared working directory
+or Git history.
 
 A second control workspace can reference the same dashboard with its same ID.
 Members can also be compositions; nested identity cycles are rejected. Joining
@@ -82,3 +82,23 @@ This edits only `agent-control/.workspace/composition.yaml`; it never deletes th
 firmware workspace, repositories, skills, history, Runs or unresolved Candidates.
 Commit only control-owned metadata/context to its own repository. Do not commit
 local writer locks, temporary files, runtime databases or member checkouts.
+
+## Execute a coordinated Task
+
+Use the [Task YAML schema](composable-workspaces-execution.md) to define contract, firmware, dashboard,
+desktop and optional integration-test subtasks with pinned workspace IDs,
+member-owned profiles, dependency edges and explicit grants. Shared contract
+files remain in `.workspace/context` or `system/contracts` of the coordinator.
+
+```sh
+ws compose task validate workstreams/remote-focus.yaml --json
+ws compose task context workstreams/remote-focus.yaml --step emit --json
+ws compose task run workstreams/remote-focus.yaml --step emit --json
+ws compose task inspect workstreams/remote-focus.yaml --json
+```
+
+Review and integrate the returned Candidate inside its member before running a
+dependent subtask. Repeating the same step/attempt recovers its existing Run;
+retrying a failure requires the next explicit `--attempt` number. The caller
+chooses order and concurrency. No implicit scheduler, Git integration or cross-
+workspace write grant is introduced.

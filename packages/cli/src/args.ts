@@ -7,9 +7,11 @@ const booleanOptions = new Set([
   'integrate',
   'no-integrate',
   'reconcile',
+  'allow-write',
+  'allow-start',
 ]);
 
-const repeatedOptions = new Set(['context-repo', 'port']);
+const repeatedOptions = new Set(['context-repo', 'port', 'allow-read', 'task-path', 'shared', 'skill']);
 
 export function parseArgs(tokens) {
   const positionals = [];

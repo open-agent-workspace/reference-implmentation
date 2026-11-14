@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { stringify as stringifyYaml } from 'yaml';
 
@@ -70,7 +71,9 @@ export class FileKnowledgeProvider {
       completed_at: run.finished_at ?? run.finishedAt ?? new Date().toISOString(),
     };
     const path = join(directory, `${runId}.yaml`);
-    await writeFile(path, stringifyYaml(record), 'utf8');
+    const temporary = `${path}.${randomUUID()}.tmp`;
+    await writeFile(temporary, stringifyYaml(record), 'utf8');
+    await rename(temporary, path);
     return { path, record };
   }
 
