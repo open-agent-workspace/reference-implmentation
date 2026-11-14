@@ -249,3 +249,13 @@ be supplied explicitly with `--command`.
 V1 does not provide remote execution, atomic multi-repository integration,
 hard sandboxing, a scheduler, a CI service, or distributed coordination. Those
 are explicit provider extension points rather than hidden promises.
+
+## Composing existing workspaces
+
+`ws compose` references independently owned workspaces without importing their
+repositories, instructions or skills. Members retain their IDs and standalone
+workflows. See the [assessment and phased plan](docs/composable-workspaces.md),
+[ADR](docs/adr-001-composable-workspaces.md), and
+[dashboard / Rust companion / ESP32 example](docs/composable-workspaces-example.md).
+The initial feature supports metadata, inspection, validation and relocation;
+scoped context resolution and coordinated dispatch remain planned.

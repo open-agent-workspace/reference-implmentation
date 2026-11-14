@@ -11,3 +11,4 @@ export * from './providers/git-worktree.js';
 export * from './providers/integration.js';
 export * from './providers/knowledge-files.js';
 export * from './providers/process.js';
+export * from './composition.js';

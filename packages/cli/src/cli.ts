@@ -4,6 +4,12 @@ import { join, resolve } from 'node:path';
 import { parseArgs, rejectUnknown, requirePositional } from './args.js';
 import { printValue } from './output.js';
 import {
+  createComposition,
+  addCompositionMember,
+  removeCompositionMember,
+  relocateCompositionMember,
+  inspectComposition,
+  validateComposition,
   WorkspaceError,
   headCommit,
   currentBranch,
@@ -44,6 +50,11 @@ Usage:
   ws repo clone <git-url> [--name <name>] [--role <role>] [--path <repos/name>]
   ws repo sync [name]
   ws repo list [--json]
+  ws compose create [name] [--json]
+  ws compose add <alias> <workspace-path> [--role <role>] [--access read-only|read-write] [--json]
+  ws compose remove <alias> [--json]
+  ws compose relocate <alias> <workspace-path> [--json]
+  ws compose list|inspect|validate [--json]
   ws discover [--system <id>] [--layer <id>] [--kind <kind>] [--json]
   ws validate [--json]
   ws generate [--json]
@@ -527,6 +538,32 @@ async function commandCleanup(options, context) {
   } finally { closeRuntime(state); }
 }
 
+function commandCompose(positionals, options, context) {
+  const workspace = discoverWorkspace(context.cwd);
+  const action = requirePositional(positionals, 1, 'composition action');
+  const limits = { create: 3, add: 4, remove: 3, relocate: 4, list: 2, inspect: 2, validate: 2 };
+  if (!Object.hasOwn(limits, action)) throw new WorkspaceError(`Unknown composition action: ${action}`);
+  rejectUnknown(options, action === 'add' ? ['json', 'role', 'access'] : ['json']);
+  if (positionals.length > limits[action]) throw new WorkspaceError(`Too many arguments for compose ${action}`);
+  let result;
+  switch (action) {
+    case 'create': result = createComposition(workspace, positionals[2]); break;
+    case 'add': result = addCompositionMember(workspace,
+      requirePositional(positionals, 2, 'member alias'), requirePositional(positionals, 3, 'workspace path'), options); break;
+    case 'remove': result = removeCompositionMember(workspace, requirePositional(positionals, 2, 'member alias')); break;
+    case 'relocate': result = relocateCompositionMember(workspace,
+      requirePositional(positionals, 2, 'member alias'), requirePositional(positionals, 3, 'workspace path')); break;
+    case 'list': result = inspectComposition(workspace).members; break;
+    case 'inspect': result = inspectComposition(workspace); break;
+    case 'validate':
+      result = validateComposition(workspace);
+      output(result, options, context);
+      if (!result.valid) throw new WorkspaceError('Composition validation failed');
+      return;
+  }
+  output(result, options, context);
+}
+
 export async function main(argv = [], suppliedContext: any = {}) {
   const context = {
     cwd: suppliedContext.cwd ?? process.cwd(),
@@ -545,6 +582,7 @@ export async function main(argv = [], suppliedContext: any = {}) {
   }
   switch (command) {
     case 'init': return commandInit(positionals, options, context);
+    case 'compose': return commandCompose(positionals, options, context);
     case 'repo': return commandRepo(positionals, options, context);
     case 'discover': return commandDiscover(positionals, options, context);
     case 'validate': return commandValidate(positionals, options, context);
